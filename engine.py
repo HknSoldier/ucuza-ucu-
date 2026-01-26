@@ -62,4 +62,21 @@ class AnalysisEngine:
                         hotel_link = f"https://www.google.com/travel/hotels?q=hotels+in+{dest}&checkin={dep_date}&checkout={ret_date}"
                         
                         # Google Flights Linki
-                        flight_link = f"
+                        flight_link = f"https://www.google.com/travel/flights?q=Flights%20to%20{dest}%20from%20{origin}%20on%20{dep_date}%20through%20{ret_date}"
+
+                        return FlightDeal(
+                            origin=origin, destination=dest, date=dep_date, return_date=ret_date,
+                            price_try=price, airline=best_flight.airline, days=stay_days,
+                            note=f"Yeşil Bölge Fırsatı! Bavul durumu linkte.",
+                            is_green=True,
+                            link=flight_link,
+                            hotel_link=hotel_link
+                        )
+                
+                time.sleep(random.uniform(2, 4))
+
+            except Exception as e:
+                logger.error(f"Hata {origin}-{dest}: {e}")
+                continue
+        
+        return None
