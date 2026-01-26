@@ -1,11 +1,11 @@
-name: SNIPER V50 - HOLIDAY PACKAGER
+name: SNIPER HOLIDAY PACKAGER
 
 on:
   schedule:
-    # UTC: 06, 12, 18 -> Türkiye: 09:00, 15:00, 21:00
+    # Türkiye Saatiyle: 09:00, 15:00, 21:00
     - cron: '0 6,12,18 * * *'
   
-  workflow_dispatch: # Manuel test butonu
+  workflow_dispatch: # Manuel Test Butonu
 
 concurrency:
   group: sniper-holiday
@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 jobs:
-  holiday-scan:
+  scan:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     
@@ -33,10 +33,10 @@ jobs:
         run: |
           pip install requests fast-flights beautifulsoup4 pandas python-dotenv
       
-      - name: 🎯 Tatil Taramasını Başlat
+      - name: 🎯 Taramayı Başlat
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }} # BURASI ÇOK ÖNEMLİ
           PYTHONUNBUFFERED: 1
         run: python main.py
 
