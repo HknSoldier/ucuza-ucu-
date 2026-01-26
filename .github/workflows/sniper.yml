@@ -1,21 +1,20 @@
-name: SNIPER HOLIDAY PACKAGER
+name: SNIPER V60 - WORLD DOMINATION
 
 on:
   schedule:
-    # Türkiye Saatiyle: 09:00, 15:00, 21:00
-    - cron: '0 6,12,18 * * *'
-  
-  workflow_dispatch: # Manuel Test Butonu
+    # Her 4 saatte bir çalış (Günde 6 kez)
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
 
 concurrency:
-  group: sniper-holiday
+  group: sniper-world
   cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  scan:
+  world-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     
@@ -30,21 +29,20 @@ jobs:
           cache: 'pip'
       
       - name: 📦 Kütüphaneleri Yükle
-        run: |
-          pip install requests fast-flights beautifulsoup4 pandas python-dotenv
+        run: pip install requests fast-flights beautifulsoup4 pandas python-dotenv
       
-      - name: 🎯 Taramayı Başlat
+      - name: 🎯 Dünya Taraması Başlat
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }} # BURASI ÇOK ÖNEMLİ
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           PYTHONUNBUFFERED: 1
         run: python main.py
 
-      - name: 💾 Verileri Kaydet
+      - name: 💾 Hafızayı Kaydet (scan_state.json)
         if: always()
         run: |
           git config --global user.name "SNIPER AI"
           git config --global user.email "bot@sniper.com"
-          git add sent_deals.txt
-          git commit -m "💾 Veri Güncellemesi" || echo "Değişiklik yok"
+          git add scan_state.json sent_deals.txt
+          git commit -m "💾 Hafıza Güncellendi: $(date)" || echo "Değişiklik yok"
           git push
