@@ -28,7 +28,7 @@ class AnalysisEngine:
         for month in months:
             year = today.year + (1 if month < today.month else 0)
             
-            # 5 ile 8 gün arası tatil planı (Paket Tur Mantığı)
+            # 5 ile 8 gün arası tatil planı
             stay_days = random.choice([5, 6, 7, 8]) 
             # Ayın ortaları (10-25 arası) genelde daha ucuzdur
             start_day = random.randint(10, 25)
@@ -40,7 +40,7 @@ class AnalysisEngine:
                 continue
 
             try:
-                # Fast-flights ile tarama
+                # Uçuşları Ara
                 result = get_flights(
                     flight_data=[FlightData(date=dep_date, from_airport=origin, to_airport=dest),
                                  FlightData(date=ret_date, from_airport=dest, to_airport=origin)],
@@ -55,29 +55,11 @@ class AnalysisEngine:
                     best_flight = result.flights[0]
                     price = best_flight.price
 
-                    # Fiyat Analizi (Limit kontrolü)
+                    # Fiyat Limiti Kontrolü
                     if hard_limit is None or price <= hard_limit:
                         
-                        # Google Hotels Linki Oluştur
+                        # Google Hotels Linki (Otomatik Tarihli)
                         hotel_link = f"https://www.google.com/travel/hotels?q=hotels+in+{dest}&checkin={dep_date}&checkout={ret_date}"
                         
-                        # Google Flights Linki Oluştur
-                        flight_link = f"https://www.google.com/travel/flights?q=Flights%20to%20{dest}%20from%20{origin}%20on%20{dep_date}%20through%20{ret_date}"
-
-                        return FlightDeal(
-                            origin=origin, destination=dest, date=dep_date, return_date=ret_date,
-                            price_try=price, airline=best_flight.airline, days=stay_days,
-                            note=f"Yeşil Bölge Fırsatı! Bavul durumu belirsiz.",
-                            is_green=True,
-                            link=flight_link,
-                            hotel_link=hotel_link
-                        )
-                
-                # Anti-ban beklemesi
-                time.sleep(random.uniform(2, 4))
-
-            except Exception as e:
-                logger.error(f"Hata {origin}-{dest}: {e}")
-                continue
-        
-        return None
+                        # Google Flights Linki
+                        flight_link = f"
