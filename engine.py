@@ -1,4 +1,6 @@
-import time, random, logging
+import time
+import random
+import logging
 from datetime import datetime, timedelta
 from fast_flights import FlightData, Passengers, get_flights
 from dataclasses import dataclass
@@ -25,6 +27,7 @@ class AnalysisEngine:
             except: continue
 
             try:
+                # Fast-flights (Protobuf Scraping - Daha zor yakalanır)
                 result = get_flights(
                     flight_data=[FlightData(date=dep_date, from_airport=origin, to_airport=dest),
                                  FlightData(date=ret_date, from_airport=dest, to_airport=origin)],
@@ -35,18 +38,13 @@ class AnalysisEngine:
                 if result and result.flights:
                     best = result.flights[0]
                     price = best.price
-
                     if hard_limit is None or price <= hard_limit:
                         h_link = f"https://www.google.com/travel/hotels?q=hotels+in+{dest}&checkin={dep_date}&checkout={ret_date}"
                         f_link = f"https://www.google.com/travel/flights?q=Flights%20to%20{dest}%20from%20{origin}%20on%20{dep_date}%20through%20{ret_date}"
-
                         return FlightDeal(
                             origin=origin, destination=dest, date=dep_date, return_date=ret_date,
                             price_try=price, airline=best.airline, days=stay_days,
-                            note="Fiyat Limiti Altında Fırsat!", is_green=True, link=f_link, hotel_link=h_link
+                            note="Yeşil Bölge Fırsatı", is_green=True, link=f_link, hotel_link=h_link
                         )
-                time.sleep(random.uniform(2, 4))
-            except Exception as e:
-                logger.error(f"Hata: {e}")
-                continue
+            except: pass
         return None
