@@ -16,14 +16,14 @@ SENT_DEALS_FILE = "sent_deals.txt"
 
 def send_telegram_package(deal):
     """
-    Telegram'a Tatil Paketi Formatında Mesaj Atar
+    Telegram'a Tatil Paketi Formatında (Uçak + Otel + Bavul) Mesaj Atar
     """
     if not TG_TOKEN or not TG_CHAT_ID:
         logger.error("❌ Telegram Token veya ID eksik! GitHub Secrets ayarlarını kontrol et.")
         return
 
-    # Tahmini Otel Fiyatı (Ortalama gecelik 2000 TL varsayımı ile simülasyon)
-    est_hotel_price = deal.days * 2000 
+    # Tahmini Otel Fiyatı (Ortalama gecelik 2500 TL varsayımı)
+    est_hotel_price = deal.days * 2500 
     total_est = deal.price_try + est_hotel_price
 
     msg = f"""
@@ -31,14 +31,14 @@ def send_telegram_package(deal):
 
 📍 <b>Rota:</b> {deal.origin} ➔ {deal.destination}
 📅 <b>Tarih:</b> {deal.date} - {deal.return_date} ({deal.days} Gece)
-🏨 <b>Konaklama:</b> Otel önerileri eklendi.
+🏨 <b>Konaklama:</b> Otel/Daire önerileri hazır.
 
 💰 <b>UÇAK BİLETİ:</b> {deal.price_try:,.0f} TL
 🛏️ <b>TAHMİNİ OTEL:</b> {est_hotel_price:,.0f} TL (Ort.)
 🏷️ <b>TOPLAM TAHMİNİ:</b> {total_est:,.0f} TL
 
 ⚠️ <i>{deal.note}</i>
-🎒 <i>Bavul: Fiyat 'Eco Light' olabilir. +20kg bavul için havayolu sitesini kontrol et.</i>
+🎒 <i>Bavul Uyarısı: Fiyat 'Eco Light' olabilir. +20kg bagaj için linkten kontrol edin.</i>
 
 🔗 <a href="{deal.link}">✈️ UÇAK BİLETİNE GİT</a>
 🔗 <a href="{deal.hotel_link}">🏨 OTELLERE BAK (GOOGLE)</a>
@@ -60,7 +60,6 @@ def send_telegram_package(deal):
 
 def is_deal_new(deal):
     """Aynı paketi tekrar tekrar atmasın diye kontrol eder"""
-    # Fiyatı yuvarla ki kuruş farkından tekrar atmasın
     price_rounded = int(round(deal.price_try, -2))
     deal_sig = f"{deal.origin}-{deal.destination}-{deal.date}-{price_rounded}"
     
@@ -76,7 +75,7 @@ def is_deal_new(deal):
     return True
 
 def main():
-    logger.info("🚀 FLIGHT'S TRAVEL BOT BAŞLATILIYOR...")
+    logger.info("🚀 TATİL PAKETİ MOTORU BAŞLATILIYOR...")
     
     intel = IntelligenceGatherer()
     engine = AnalysisEngine()
