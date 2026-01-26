@@ -1,0 +1,4 @@
+requests
+fast_flights
+beautifulsoup4
+pandas
