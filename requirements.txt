@@ -1,6 +1,28 @@
-requests
-fast_flights
-beautifulsoup4
-pandas
-python-dotenv
-feedparser
+# PROJECT TITAN - Requirements
+# Core dependencies for hybrid scraping engine
+
+# HTTP & Async
+aiohttp==3.9.1
+asyncio==3.4.3
+
+# RSS Feed Parser
+feedparser==6.0.10
+
+# Browser Automation (Fallback Method)
+playwright==1.40.0
+pytest-playwright==0.4.3
+
+# Date Handling
+python-dateutil==2.8.2
+
+# Optional: Primary Scraping Method
+# Note: This may break, but we have Playwright fallback
+fast-flights==1.0.0
+
+# Utilities
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# Logging & Debugging
+colorlog==6.8.0
