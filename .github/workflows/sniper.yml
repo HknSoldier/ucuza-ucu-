@@ -1,41 +1,53 @@
-name: SNIPER V80 - AUTONOMOUS
+# .github/workflows/sniper.yml
+name: PROJECT TITAN - Flight Sniper
 
 on:
   schedule:
-    # Her 6 saatte bir çalışır
-    - cron: '0 */6 * * *'
-  workflow_dispatch:
-
-permissions:
-  contents: write
+    # Run every 4 hours
+    - cron: '0 */4 * * *'
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
-  scan:
+  hunt:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
     
     steps:
-      - name: 🚀 Başlat
-        uses: actions/checkout@v4
-      
-      - name: 🐍 Python Hazırla
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: 📦 Paketleri Kur
-        run: pip install -r requirements.txt
-      
-      - name: 🛰️ Taramayı Ateşle
-        env:
-          PYTHONUNBUFFERED: 1
-        run: python main.py
-
-      - name: 💾 Hafızayı Kaydet
-        if: always()
-        run: |
-          git config --global user.name "SNIPER AI"
-          git config --global user.email "intel@sniper.com"
-          git add price_history.json
-          git commit -m "🧠 Hafıza Güncellendi" || echo "Değişiklik yok"
-          git push
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Install Playwright browsers
+      run: |
+        playwright install chromium
+        playwright install-deps
+    
+    - name: Run TITAN
+      run: |
+        python main.py
+    
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: titan-logs
+        path: |
+          titan.log
+          titan_state.json
+        retention-days: 7
