@@ -1,0 +1,10 @@
+{
+  "name": "project-titan",
+  "version": "1.0.0",
+  "description": "Autonomous Flight Intelligence System",
+  "scripts": {
+    "start": "python main.py"
+  },
+  "author": "TITAN Team",
+  "license": "MIT"
+}
