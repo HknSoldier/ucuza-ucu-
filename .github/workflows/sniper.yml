@@ -1,48 +1,43 @@
-name: SNIPER V60 - WORLD DOMINATION
+name: SNIPER V70 - AUTONOMOUS
 
 on:
   schedule:
-    # Her 4 saatte bir çalış (Günde 6 kez)
-    - cron: '0 */4 * * *'
+    # Her 6 saatte bir (Günde 4 kez yeterli)
+    - cron: '0 */6 * * *'
   workflow_dispatch:
-
-concurrency:
-  group: sniper-world
-  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  world-scan:
+  intel-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     
     steps:
-      - name: 🚀 Depoyu Çek
+      - name: 🚀 İstihbarat Merkezini Kur
         uses: actions/checkout@v4
       
-      - name: 🐍 Python 3.11 Kurulumu
+      - name: 🐍 Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
       
-      - name: 📦 Kütüphaneleri Yükle
-        run: pip install requests fast-flights beautifulsoup4 pandas python-dotenv
+      - name: 📦 Araçları Yükle
+        run: pip install -r requirements.txt
       
-      - name: 🎯 Dünya Taraması Başlat
+      - name: 🛰️ Sinyal Taraması & Analiz
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           PYTHONUNBUFFERED: 1
         run: python main.py
 
-      - name: 💾 Hafızayı Kaydet (scan_state.json)
+      - name: 💾 Hafızayı Güncelle (Git Commit)
         if: always()
         run: |
           git config --global user.name "SNIPER AI"
-          git config --global user.email "bot@sniper.com"
-          git add scan_state.json sent_deals.txt
-          git commit -m "💾 Hafıza Güncellendi: $(date)" || echo "Değişiklik yok"
+          git config --global user.email "intel@sniper.com"
+          git add price_history.json
+          git commit -m "🧠 Hafıza Güncellendi" || echo "Değişiklik yok"
           git push
