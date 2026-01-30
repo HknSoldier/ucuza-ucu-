@@ -2,3 +2,5 @@ requests
 fast_flights
 beautifulsoup4
 pandas
+python-dotenv
+feedparser
