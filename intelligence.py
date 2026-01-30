@@ -6,15 +6,16 @@ logger = logging.getLogger(__name__)
 
 class IntelligenceGatherer:
     def __init__(self):
-        # Türkiye'nin Tüm Uluslararası Hub'ları
-        self.TR_HUBS = [
-            'IST', 'SAW', # İstanbul
-            'ADB', # İzmir
+        # STRATEJİK ÇIKIŞ ÜSLERİ (Türkiye + Sofya Kapısı)
+        self.STRATEGIC_HUBS = [
+            'IST', 'SAW', # İstanbul (Ana Üs)
+            'ADB', # İzmir (Avrupa Bağlantısı)
             'ESB', # Ankara
-            'AYT', # Antalya
+            'AYT', # Antalya (Turistik)
             'DLM', # Dalaman
             'BJV', # Bodrum
-            'TZX'  # Trabzon
+            'TZX', # Trabzon (Doğu Kapısı)
+            'SOF'  # 🇧🇬 SOFYA (AVRUPA ARKA KAPISI - HACKER ROTASI)
         ]
         
         # Dünya Geneli Hedefler (Popüler)
@@ -34,7 +35,6 @@ class IntelligenceGatherer:
     def fetch_external_signals(self):
         """
         İnternetteki kampanya sinyallerini (RSS) tarar.
-        Eğer 'New York' indirimi görürse, listeye NYC'yi öncelikli ekler.
         """
         priority_destinations = []
         logger.info("📡 Dış İstihbarat (RSS/Reddit) taranıyor...")
@@ -62,16 +62,15 @@ class IntelligenceGatherer:
 
     def get_mission_targets(self):
         """
-        1. Dış sinyalleri (Kampanyaları) al.
-        2. Rastgele Türkiye çıkış noktası seç (Cache mantığı).
-        3. Rotaları oluştur.
+        Görev emrini oluşturur.
+        Sofya dahil tüm üslerden rastgele 2 tanesini seçip tarama yapar.
         """
         signals = self.fetch_external_signals()
         
         # Sinyal gelen yerleri %100 listeye al
         targets = list(set(signals))
         
-        # Geri kalan boşlukları popüler yerlerle doldur (Toplam 20 hedef olsun)
+        # Geri kalan boşlukları popüler yerlerle doldur
         while len(targets) < 20:
             choice = random.choice(self.GLOBAL_TARGETS)
             if choice not in targets:
@@ -80,16 +79,29 @@ class IntelligenceGatherer:
         # Rotaları Oluştur
         missions = []
         
-        # Her çalışma döngüsünde Türkiye'den 2 farklı çıkış noktasını tara (Yükü dağıtmak için)
-        active_hubs = random.sample(self.TR_HUBS, 2) 
+        # Rastgele 2 veya 3 farklı çıkış noktasını seç (Örn: Bir turda IST ve SOF, diğerinde ADB ve SAW)
+        # Bu sayede her çalışmada farklı kombinasyonlar denenir.
+        active_hubs = random.sample(self.STRATEGIC_HUBS, 3) 
         
+        # Eğer Sofya seçilmediyse, %30 şansla zorla ekle (Hacker Bonusu)
+        if 'SOF' not in active_hubs and random.random() < 0.3:
+            active_hubs.pop()
+            active_hubs.append('SOF')
+        
+        logger.info(f"🏰 AKTİF ÜSLER: {active_hubs} (Bu turda buradan kalkış yapılacak)")
+
         for origin in active_hubs:
             for dest in targets:
+                # Fiyat Limitleri: Sofya çıkışlı ise limit daha düşük olmalı (Daha ucuz olduğu için)
+                limit = 40000
+                if origin == 'SOF':
+                    limit = 15000 # Sofya'dan 15k üstü pahalıdır
+                
                 missions.append({
                     'origin': origin,
                     'dest': dest,
-                    'hard_limit': 40000 # Üst limit
+                    'hard_limit': limit 
                 })
                 
-        logger.info(f"⚔️ GÖREV EMRİ: {len(missions)} rota oluşturuldu. Öncelik: {signals}")
+        logger.info(f"⚔️ GÖREV EMRİ: {len(missions)} rota oluşturuldu.")
         return missions
