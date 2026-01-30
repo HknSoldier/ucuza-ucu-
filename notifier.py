@@ -86,9 +86,9 @@ class TelegramNotifier:
 <b>Airline:</b> {deal.get('airline', 'N/A')}
 
 📊 <b>Analysis:</b>
-- Average Price: {analysis.get('avg_price', 0):,.0f} TL
-- Threshold: {analysis.get('threshold', 0):,.0f} TL
-- Savings: {((analysis.get('avg_price', 0) - deal['price']) / analysis.get('avg_price', 1) * 100):.1f}%
+• Average Price: {analysis.get('avg_price', 0):,.0f} TL
+• Threshold: {analysis.get('threshold', 0):,.0f} TL
+• Savings: {((analysis.get('avg_price', 0) - deal['price']) / analysis.get('avg_price', 1) * 100):.1f}%
 
 🔗 <a href="{flights_url}">View Flights on Google</a>
 🏨 <a href="{hotels_url}">Find Hotels</a>
@@ -153,16 +153,3 @@ Intelligence system initialized.
 Monitoring active routes...
 """
         await self._send_message(self.admin_id, message)
-```
-
-Şimdi gerekli diğer dosyaları oluşturuyorum:
-```
-# requirements.txt
-aiohttp==3.9.1
-feedparser==6.0.10
-playwright==1.40.0
-pytest-playwright==0.4.3
-python-dateutil==2.8.2
-
-# Optional: fast-flights (may break, we have fallback)
-fast-flights==1.0.0
