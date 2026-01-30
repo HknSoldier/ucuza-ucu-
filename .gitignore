@@ -1,0 +1,57 @@
+# PROJECT TITAN - Git Ignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+titan.log
+
+# State Files (keep local, don't commit)
+titan_state.json
+
+# Playwright
+.playwright/
+playwright-report/
+
+# Debug Screenshots
+debug_*.png
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (though we hardcoded them)
+.env
+secrets.json
