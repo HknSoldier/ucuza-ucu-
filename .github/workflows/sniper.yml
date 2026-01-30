@@ -1,4 +1,3 @@
-# .github/workflows/sniper.yml
 name: PROJECT TITAN - Flight Sniper
 
 on:
