@@ -1,8 +1,8 @@
-name: SNIPER V70 - AUTONOMOUS
+name: SNIPER V80 - AUTONOMOUS
 
 on:
   schedule:
-    # Her 6 saatte bir (Günde 4 kez yeterli)
+    # Her 6 saatte bir çalışır
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
@@ -10,30 +10,28 @@ permissions:
   contents: write
 
 jobs:
-  intel-scan:
+  scan:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     
     steps:
-      - name: 🚀 İstihbarat Merkezini Kur
+      - name: 🚀 Başlat
         uses: actions/checkout@v4
       
-      - name: 🐍 Python 3.11
+      - name: 🐍 Python Hazırla
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
-      - name: 📦 Araçları Yükle
+      - name: 📦 Paketleri Kur
         run: pip install -r requirements.txt
       
-      - name: 🛰️ Sinyal Taraması & Analiz
+      - name: 🛰️ Taramayı Ateşle
         env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           PYTHONUNBUFFERED: 1
         run: python main.py
 
-      - name: 💾 Hafızayı Güncelle (Git Commit)
+      - name: 💾 Hafızayı Kaydet
         if: always()
         run: |
           git config --global user.name "SNIPER AI"
