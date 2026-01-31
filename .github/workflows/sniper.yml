@@ -5,10 +5,14 @@ on:
     # Run every 4 hours
     - cron: '0 */4 * * *'
   workflow_dispatch:  # Allow manual trigger
+  push:
+    branches:
+      - main  # Run on push for testing
 
 jobs:
   hunt:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     
     steps:
     - name: Checkout code
@@ -18,14 +22,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
-    - name: Cache pip dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+        cache: 'pip'
     
     - name: Install dependencies
       run: |
@@ -35,18 +32,42 @@ jobs:
     - name: Install Playwright browsers
       run: |
         playwright install chromium
-        playwright install-deps
+        playwright install-deps chromium
+    
+    - name: Verify installation
+      run: |
+        python --version
+        pip list | grep -E "playwright|aiohttp|feedparser"
+        python -c "import playwright; print('✓ Playwright OK')"
     
     - name: Run TITAN
       run: |
         python main.py
+      env:
+        # GitHub Secrets - automatically injected
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        ADMIN_ID: ${{ secrets.ADMIN_ID }}
+        GROUP_ID: ${{ secrets.GROUP_ID }}
+        PYTHONUNBUFFERED: 1
     
     - name: Upload logs
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: titan-logs
+        name: titan-logs-${{ github.run_number }}
         path: |
           titan.log
           titan_state.json
         retention-days: 7
+        if-no-files-found: warn
+    
+    - name: Upload debug info on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-info-${{ github.run_number }}
+        path: |
+          *.log
+          *.json
+        retention-days: 3
+        if-no-files-found: ignore
