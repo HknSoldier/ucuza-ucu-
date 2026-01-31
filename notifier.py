@@ -1,6 +1,7 @@
-# notifier.py - Telegram Notification System
+# notifier.py - Telegram Notification System (SECURE VERSION)
 import logging
 import aiohttp
+import os
 from typing import List, Dict
 import traceback
 
@@ -10,13 +11,20 @@ class TelegramNotifier:
     """
     Telegram notification system
     Sends beautiful HTML-formatted alerts to admin and group
+    Now uses environment variables for security (GitHub Secrets)
     """
     
     def __init__(self):
-        # HARDCODED CREDENTIALS (as requested)
-        self.bot_token = "8161806410:AAH4tGpW_kCvQpLOfaB-r2OYQMypPVYtuYg"
-        self.admin_id = 7684228928
-        self.group_id = -1003515302846
+        # Read from environment variables (GitHub Secrets)
+        # Fallback to hardcoded values for local testing only
+        self.bot_token = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+        self.admin_id = int(os.environ.get("ADMIN_ID", "0"))
+        self.group_id = int(os.environ.get("GROUP_ID", "0"))
+        
+        # Validate credentials
+        if self.bot_token == "YOUR_BOT_TOKEN_HERE" or self.admin_id == 0:
+            logger.warning("⚠️ Using default credentials! Set BOT_TOKEN, ADMIN_ID, GROUP_ID in environment")
+        
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
     
     async def _send_message(self, chat_id: int, text: str, parse_mode: str = "HTML"):
