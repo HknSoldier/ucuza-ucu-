@@ -1,4 +1,4 @@
-# scraper_engine.py - ULTRA IMPROVED & FIXED Google Flights Scraper
+# scraper_engine.py - FIXED & PRODUCTION READY
 import asyncio
 import logging
 import random
@@ -10,147 +10,134 @@ logger = logging.getLogger(__name__)
 
 class ScraperEngine:
     """
-    Titan Class Scraper - Fixed URL Structure & Cookie Handling
+    Titan Class Scraper - Official Google Flights URL & Smart Selectors
     """
     
     def __init__(self):
         self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         ]
 
     async def _handle_cookie_consent(self, page):
-        """
-        Google'ın sinir bozucu Cookie banner'ını kapatır.
-        """
+        """Çerezleri reddet veya kabul et"""
         try:
-            # "Reject all" veya "Accept all" butonlarını ara
-            # Farklı diller için (EN, TR, DE) genel butonları dener
+            # Google'ın standart butonları
             buttons = [
                 "button[aria-label*='Reject all']",
                 "button[aria-label*='Tümünü reddet']",
-                "span:text('Reject all')",
-                "span:text('Tümünü reddet')",
-                "span:text('Accept all')",
-                "span:text('Kabul et')"
+                "button:has-text('Reject all')",
+                "button:has-text('Tümünü reddet')",
+                "button:has-text('Accept all')",
+                "span:has-text('Kabul et')"
             ]
-            
             for selector in buttons:
-                if await page.is_visible(selector, timeout=2000):
-                    logger.info(f"🍪 Cookie banner bulundu ve kapatılıyor: {selector}")
+                if await page.is_visible(selector, timeout=3000):
+                    logger.info("🍪 Cookie banner kapatılıyor...")
                     await page.click(selector)
-                    await asyncio.sleep(1) # Animasyon için bekle
+                    await asyncio.sleep(2)
                     return
         except:
-            pass # Banner yoksa devam et
+            pass
 
     async def scrape_flight(self, origin: str, destination: str, departure_date: str, return_date: str) -> Optional[Dict]:
-        """
-        Ana scraping fonksiyonu
-        """
         browser = None
-        # Doğru Google Flights URL Yapısı (Query Parametreleri ile)
-        # hl=en (İngilizce), gl=tr (Türkiye Lokasyonu), curr=TRY (Para Birimi)
+        # RESMİ GOOGLE URL'si (En sağlıklısı budur)
         url = (
-            f"https://www.google.com/travel/flights?hl=en&gl=tr&curr=TRY"
-            f"&q=Flights+to+{destination}+from+{origin}+on+{departure_date}+through+{return_date}"
+            f"https://www.google.com/travel/flights?q=Flights+to+{destination}+from+{origin}+on+{departure_date}+through+{return_date}&curr=TRY"
         )
 
         try:
             async with async_playwright() as p:
-                # Browser'ı başlat
                 browser = await p.chromium.launch(
-                    headless=True, # Debug için False yapabilirsin ama Actions'da True olmalı
-                    args=[
-                        '--disable-blink-features=AutomationControlled',
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-gpu'
-                    ]
+                    headless=True, # Actions için True
+                    args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
                 )
                 
-                # Context oluştur (User Agent hilesi)
                 context = await browser.new_context(
                     user_agent=random.choice(self.user_agents),
                     viewport={'width': 1920, 'height': 1080},
-                    locale='en-US',
-                    timezone_id='Europe/Istanbul'
+                    locale='en-US' # İngilizce zorla ki "TL" parse etmek kolay olsun
                 )
                 
                 page = await context.new_page()
                 
-                # Anti-detection scriptleri
+                # Bot algılamayı zorlaştır
                 await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-                logger.info(f"📍 Navigating to: {url}")
-                
-                # Sayfaya git (Timeout süresi artırıldı)
+                logger.info(f"📍 Navigating to official site: {url}")
                 await page.goto(url, timeout=60000, wait_until='domcontentloaded')
                 
-                # Cookie Banner Kontrolü
+                # Cookie kapat
                 await self._handle_cookie_consent(page)
                 
-                logger.info("⏳ Waiting for prices to load...")
+                logger.info("⏳ Waiting for flight results grid...")
                 
-                # Fiyat elementinin yüklenmesini bekle (30 saniye)
-                # Google Flights'ta fiyatlar genelde aria-label içinde "Turkish Lira" olarak geçer
+                # Fiyatların olduğu ana listeyi bekle (Daha uzun süre)
                 try:
-                    await page.wait_for_selector('div[role="main"]', state='visible', timeout=15000)
-                    # Scroll yaparak lazy-load tetikle
-                    await page.mouse.wheel(0, 500)
-                    await asyncio.sleep(3) 
+                    # R15d6c sınıfı genelde uçuş kartlarıdır, aria-label="View flight details" de olabilir
+                    await page.wait_for_selector('div[role="main"]', timeout=20000)
+                    # Biraz scroll yap ki yüklensin
+                    await page.mouse.wheel(0, 800)
+                    await asyncio.sleep(5) 
                 except:
-                    logger.warning("⚠️ Main container geç yüklendi.")
+                    logger.warning("⚠️ Sonuçlar geç yüklendi veya yüklenemedi.")
 
-                # Screenshot al (Debug için kritik)
+                # Screenshot al (Hata analizi için şart)
                 screenshot_name = f"debug_{origin}_{destination}.png"
                 await page.screenshot(path=screenshot_name)
-                logger.info(f"📸 Screenshot saved: {screenshot_name}")
-
-                # --- FİYAT ÇEKME STRATEJİLERİ ---
                 
+                # --- İYİLEŞTİRİLMİŞ FİYAT OKUMA ---
                 content = await page.content()
                 prices = []
 
-                # YÖNTEM 1: Regex ile "TL" veya "TRY" geçen sayıları bul (En garantisi)
-                # Örnek: "12,345 TL" veya "TRY 12,345"
-                matches = re.findall(r'(\d{1,3}(?:,\d{3})*)\s*(?:TL|TRY)', content)
+                # 1. Regex ile TRY/TL arama (Sayfadaki metin üzerinden)
+                # "TRY 12,345" veya "12,345 TL" formatlarını yakalar
+                matches = re.findall(r'(?:TRY|TL)\s?([\d,.]+)|([\d,.]+)\s?(?:TRY|TL)', content)
+                
                 for m in matches:
-                    clean_price = float(m.replace(',', ''))
-                    if clean_price > 500: # 500 TL altı hatalı veridir
-                        prices.append(clean_price)
+                    # Regex grubu hangisi doluysa onu al
+                    val_str = m[0] if m[0] else m[1]
+                    try:
+                        # Virgül ve noktayı temizle
+                        clean_price = float(val_str.replace(',', '').replace('.', ''))
+                        
+                        # FİLTRE: 505 TL gibi saçma rakamları ele (Min 1000 TL)
+                        # Uluslararası uçuşlarda 1000 TL altı imkansız
+                        if clean_price > 1000: 
+                            prices.append(clean_price)
+                    except:
+                        continue
 
-                # YÖNTEM 2: Aria-Label taraması (Google erişilebilirlik etiketleri)
+                # 2. Aria-Label Taraması (Yedek Yöntem)
                 elements = await page.query_selector_all('[aria-label*="Turkish Lira"]')
                 for el in elements:
-                    text = await el.get_attribute("aria-label")
-                    # Text içinden sayıyı sök
-                    nums = re.findall(r'(\d{1,3}(?:,\d{3})*)', text)
+                    txt = await el.get_attribute("aria-label")
+                    nums = re.findall(r'(\d+[\d,]*)', txt)
                     for n in nums:
                         try:
                             val = float(n.replace(',', ''))
-                            if val > 500: prices.append(val)
+                            if val > 1000: prices.append(val)
                         except: pass
 
                 await browser.close()
                 
-                # Fiyatları temizle ve sırala
+                # Fiyatları temizle
                 prices = sorted(list(set(prices)))
                 
                 if prices:
+                    # En ucuz mantıklı fiyatı al
                     cheapest = prices[0]
-                    logger.info(f"✅ SUCCESS! Found {len(prices)} prices. Cheapest: {cheapest:,.0f} TL")
+                    logger.info(f"✅ SUCCESS! Found valid prices. Cheapest: {cheapest:,.0f} TL")
                     return {
                         'price': cheapest,
                         'currency': 'TRY',
-                        'airline': 'Unknown', # Playwright ile havayolu adı çekmek zor ve gereksiz risk
-                        'method': 'titan-playwright',
+                        'airline': 'Google Flights',
+                        'method': 'titan-playwright-v2',
                         'url': url
                     }
                 else:
-                    logger.warning(f"⚠️ No prices found. Check {screenshot_name}")
+                    logger.warning(f"⚠️ No valid prices found (>1000 TL). Check {screenshot_name}")
                     return None
 
         except Exception as e:
