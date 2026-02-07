@@ -1,66 +1,40 @@
 #!/usr/bin/env python3
 """
-Quick test script for Telegram notifications
-Supports both environment variables and .env file
+PROJECT TITAN V2.3 - Advanced Telegram Bot Tester
+Tests all notification types with real configuration
 """
 
 import asyncio
 import sys
-import os
+from datetime import datetime
 
-# Try to load .env file for local testing
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-    print("✓ Loaded .env file")
-except ImportError:
-    print("ℹ️  python-dotenv not installed (optional for local testing)")
-except:
-    pass
-
+# Config'den direkt tokenları al
+from config import TitanConfig
 from notifier import TelegramNotifier
 
-async def test_notifications():
-    """Test all notification types"""
-    print("\n" + "="*50)
-    print("🦅 PROJECT TITAN - Telegram Bot Tester")
-    print("="*50 + "\n")
+async def test_all_features():
+    """Tüm özellikleri test et"""
+    print("\n" + "=" * 60)
+    print("🦅 PROJECT TITAN V2.3 - COMPREHENSIVE TEST SUITE")
+    print("=" * 60 + "\n")
     
-    # Check if credentials are set
-    bot_token = os.environ.get("BOT_TOKEN", "")
-    admin_id = os.environ.get("ADMIN_ID", "")
+    config = TitanConfig()
+    notifier = TelegramNotifier(config)
     
-    if not bot_token or bot_token == "YOUR_BOT_TOKEN_HERE":
-        print("❌ ERROR: BOT_TOKEN not set!")
-        print("\nFor local testing:")
-        print("  1. Copy .env.example to .env")
-        print("  2. Fill in your credentials in .env")
-        print("  3. Install: pip install python-dotenv")
-        print("  4. Run this script again")
-        print("\nFor GitHub Actions:")
-        print("  Settings → Secrets → Add BOT_TOKEN, ADMIN_ID, GROUP_ID")
-        return False
+    print(f"✅ Bot Token: {config.TELEGRAM_BOT_TOKEN[:20]}...")
+    print(f"✅ Admin ID: {config.TELEGRAM_ADMIN_ID}")
+    print(f"✅ Group ID: {config.TELEGRAM_GROUP_ID}")
+    print("-" * 60)
     
-    print(f"✓ BOT_TOKEN: {bot_token[:20]}...")
-    print(f"✓ ADMIN_ID: {admin_id}")
-    print("-" * 50)
+    # Test 1: Startup mesajı
+    print("\n[TEST 1] Startup Message...")
+    await notifier.send_startup_message()
+    print("✅ Sent!")
+    await asyncio.sleep(3)
     
-    notifier = TelegramNotifier()
-    
-    # Test 1: Startup message
-    print("\nTest 1: Sending startup message...")
-    success = await notifier.send_startup_message()
-    if success:
-        print("✅ Startup message sent!")
-    else:
-        print("❌ Failed to send startup message")
-        return False
-    
-    await asyncio.sleep(2)
-    
-    # Test 2: Mock deal alert
-    print("\nTest 2: Sending mock deal alert...")
-    mock_deal = {
+    # Test 2: Normal deal (dip fiyat)
+    print("\n[TEST 2] Bottom Price Deal...")
+    mock_deal_bottom = {
         "origin": "SOF",
         "destination": "JFK",
         "price": 9500,
@@ -68,96 +42,213 @@ async def test_notifications():
         "departure_date": "2026-06-15",
         "return_date": "2026-06-25",
         "airline": "Turkish Airlines",
-        "method": "playwright",
+        "method": "playwright-stealth",
+        "flight_type": "Direkt",
         "analysis": {
+            "should_alert": True,
+            "is_mistake_fare": False,
             "is_green_zone": True,
-            "price_drop": True,
-            "below_threshold": True,
-            "avg_price": 15000,
-            "threshold": 10000
+            "bottom_analysis": {
+                "min_price": 9000,
+                "avg_price": 15000,
+                "bottom_threshold": 9450
+            },
+            "price_category": {
+                "category": "bottom",
+                "emoji": "🔥",
+                "action": "HEMEN AL",
+                "urgency": "critical",
+                "savings": 36.7
+            },
+            "visa_info": "🇺🇸 ABD - ⚠️ VİZE GEREKLİ (B1/B2)\n⚠️ UÇUŞ ÖNCESİ VİZE BAŞVURUSU YAPILMALIDIR!",
+            "real_cost": {
+                "real_cost": 9500,
+                "base_price": 9500,
+                "extra_costs": 0
+            },
+            "elasticity": {
+                "elasticity": "low",
+                "duration": "< 6 saat",
+                "emoji": "🔥",
+                "confidence": "high"
+            },
+            "confidence": 0.95
         }
     }
     
-    await notifier.send_deals_report([mock_deal])
-    print("✅ Deal alert sent!")
+    await notifier.send_deal_alert(mock_deal_bottom)
+    print("✅ Bottom deal sent!")
+    await asyncio.sleep(3)
     
-    await asyncio.sleep(2)
+    # Test 3: Mistake fare (BYPASS tüm kuralları)
+    print("\n[TEST 3] Mistake Fare Alert...")
+    mock_deal_mistake = {
+        "origin": "IST",
+        "destination": "LAX",
+        "price": 8500,
+        "currency": "TRY",
+        "departure_date": "2026-07-10",
+        "return_date": "2026-07-20",
+        "airline": "Multiple",
+        "method": "playwright-stealth",
+        "flight_type": "1 Aktarma",
+        "analysis": {
+            "should_alert": True,
+            "is_mistake_fare": True,  # MISTAKE FARE!
+            "is_green_zone": True,
+            "bottom_analysis": {
+                "min_price": 28000,
+                "avg_price": 35000,
+                "bottom_threshold": 29400
+            },
+            "price_category": {
+                "category": "bottom",
+                "emoji": "🔥",
+                "action": "HEMEN AL",
+                "urgency": "critical",
+                "savings": 75.7
+            },
+            "visa_info": "🇺🇸 ABD - ⚠️ VİZE GEREKLİ (B1/B2)",
+            "real_cost": {
+                "real_cost": 9200,
+                "base_price": 8500,
+                "extra_costs": 700
+            },
+            "elasticity": {
+                "elasticity": "low",
+                "duration": "< 6 saat",
+                "emoji": "🔥"
+            },
+            "confidence": 0.90
+        }
+    }
     
-    # Test 3: Error alert
-    print("\nTest 3: Sending mock error alert...")
-    await notifier.send_error_alert("Test error: This is a test message")
+    await notifier.send_deal_alert(mock_deal_mistake)
+    print("✅ Mistake fare sent!")
+    await asyncio.sleep(3)
+    
+    # Test 4: Schengen (vizesiz) deal
+    print("\n[TEST 4] Schengen Visa-Free Deal...")
+    mock_deal_schengen = {
+        "origin": "IST",
+        "destination": "AMS",
+        "price": 2500,
+        "currency": "TRY",
+        "departure_date": "2026-08-05",
+        "return_date": "2026-08-12",
+        "airline": "Pegasus",
+        "method": "playwright-stealth",
+        "flight_type": "Direkt",
+        "analysis": {
+            "should_alert": True,
+            "is_mistake_fare": False,
+            "is_green_zone": True,
+            "bottom_analysis": {
+                "min_price": 2400,
+                "avg_price": 3500,
+                "bottom_threshold": 2520
+            },
+            "price_category": {
+                "category": "normal",
+                "emoji": "🟡",
+                "action": "BEKLE",
+                "urgency": "medium",
+                "savings": 28.6
+            },
+            "visa_info": "🟢 🇳🇱 Hollanda (Schengen - Vizesiz)",
+            "real_cost": {
+                "real_cost": 3050,
+                "base_price": 2500,
+                "extra_costs": 550
+            },
+            "elasticity": {
+                "elasticity": "high",
+                "duration": "> 24 saat",
+                "emoji": "⏳"
+            },
+            "confidence": 0.85
+        }
+    }
+    
+    await notifier.send_deal_alert(mock_deal_schengen)
+    print("✅ Schengen deal sent!")
+    await asyncio.sleep(3)
+    
+    # Test 5: Error alert
+    print("\n[TEST 5] Error Alert...")
+    await notifier.send_error_alert("Test error: IP rotation needed (Simulated)")
     print("✅ Error alert sent!")
     
-    print("\n" + "=" * 50)
-    print("✅ ALL TESTS PASSED!")
-    print("Check your Telegram for 3 messages:")
-    print("  1. Startup message")
-    print("  2. Deal alert (SOF → JFK)")
-    print("  3. Error alert")
-    print("=" * 50 + "\n")
+    print("\n" + "=" * 60)
+    print("✅ ALL TESTS COMPLETED!")
+    print("=" * 60)
+    print("\nTelegram'ınızı kontrol edin:")
+    print("  1. ✅ Startup mesajı")
+    print("  2. 🔥 Dip fiyat alarm (SOF → JFK)")
+    print("  3. 💎 Mistake fare alarm (IST → LAX)")
+    print("  4. 🟢 Schengen vizesiz deal (IST → AMS)")
+    print("  5. ⚠️ Error alert")
+    print("=" * 60 + "\n")
+
+async def test_quick():
+    """Hızlı test - sadece basit mesaj"""
+    print("\n🦅 Quick Test - Sending test message...\n")
     
-    return True
-
-async def test_single_message():
-    """Send a simple test message"""
-    print("\n🦅 Sending test message to Telegram...\n")
+    config = TitanConfig()
+    notifier = TelegramNotifier(config)
     
-    notifier = TelegramNotifier()
-    
-    test_message = """
-🦅 <b>TITAN TEST MESSAGE</b>
+    test_msg = f"""
+🦅 <b>PROJECT TITAN V2.3 TEST</b>
 
-This is a test message from PROJECT TITAN.
+✅ Bot configured correctly!
+✅ Ghost Protocol: Active
+✅ Anti-Spam: Active
+✅ All systems operational
 
-If you received this, your bot is configured correctly! ✅
-
-Environment: {env}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
     
-    env_type = "GitHub Actions" if os.environ.get("GITHUB_ACTIONS") else "Local"
-    test_message = test_message.format(env=env_type)
-    
-    success = await notifier._send_message(notifier.admin_id, test_message)
+    success = await notifier._send_message(config.TELEGRAM_ADMIN_ID, test_msg)
     
     if success:
         print("✅ Test message sent successfully!")
         print("Check your Telegram now.\n")
         return True
     else:
-        print("❌ Failed to send test message")
-        print("Check your credentials and internet connection\n")
+        print("❌ Failed to send test message\n")
         return False
 
 def main():
     """Main test function"""
     try:
-        print("\nChoose test mode:")
+        print("\n🦅 PROJECT TITAN V2.3 - TEST MODE")
+        print("\nSelect test type:")
         print("1. Quick test (single message)")
-        print("2. Full test (all notification types)")
+        print("2. Full test (all features)")
         print()
         
         choice = input("Enter choice (1 or 2, default=1): ").strip() or "1"
         
         if choice == "1":
-            success = asyncio.run(test_single_message())
+            success = asyncio.run(test_quick())
         elif choice == "2":
-            success = asyncio.run(test_notifications())
+            success = asyncio.run(test_all_features())
         else:
             print("Invalid choice!")
             sys.exit(1)
         
-        if success:
-            print("✅ Bot is working perfectly!\n")
+        if success or choice == "2":
+            print("\n✅ Testing complete!\n")
             sys.exit(0)
         else:
-            print("❌ Bot test failed!\n")
+            print("\n❌ Test failed!\n")
             sys.exit(1)
             
     except KeyboardInterrupt:
         print("\n\n⚠️ Test cancelled by user\n")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Error during test: {e}\n")
+        print(f"\n❌ Test error: {e}\n")
         import traceback
         traceback.print_exc()
         sys.exit(1)

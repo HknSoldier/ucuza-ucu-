@@ -1,254 +1,293 @@
-# PROJECT TITAN 🦅
+# 🦅 PROJECT TITAN V2.3 - Enterprise Flight Intelligence System
 
-Otonom, gizli ve sağlam Flight Intelligence System.
+**Otonom, akıllı ve profesyonel uçuş istihbarat sistemi.**
 
-## 🔒 Güvenlik Güncellemesi
+## ✨ Yeni Özellikler (V2.3)
 
-**Public repo için güvenli!** Bot tokenleri artık GitHub Secrets'ta saklanıyor.
+### 🕒 Ghost Protocol
+- **Aktif Saatler:** Hafta içi 09:00-20:00, Hafta sonu 11:00-23:00
+- **Mistake Fare Bypass:** %70+ indirim varsa ANINDA bildir (7/24)
 
-## Özellikler
+### 🛡️ Anti-Spam Koruması
+- Max 1 alarm / rota / 24 saat
+- Max 3 alarm / gün
+- Gerçek fırsatlar için akıllı filtreleme
 
-- **Hibrit Scraping Motoru**: fast-flights (hızlı) + Playwright (hata toleranslı)
-- **Anti-Bot Koruması**: Rastgele User-Agent, insan benzeri davranış
-- **Akıllı Bildirimler**: Sadece gerçek fırsatları bildirir
-- **Hub Mantığı**: Sofia arbitraj desteği
-- **RSS İstihbaratı**: Trend olan rotaları önceliklendirir
-- **Durum Yönetimi**: Fiyat geçmişini hatırlar
-- **🔒 Güvenli**: Tokenler GitHub Secrets'ta
+### 💎 Dip Avcısı (Price Bottom)
+- **🔥 DİP:** Fiyat ≤ (En düşük × 1.05) → HEMEN AL
+- **🟡 NORMAL:** Fiyat ≤ Ortalama → BEKLE
+- **🔴 PAHALI:** Fiyat > Ortalama → ALMA
 
-## Hızlı Başlangıç (5 Dakika)
+### 🛂 Yeşil Pasaport Vize Kontrolü
+- ✅ Schengen/EU: Vizesiz
+- ⚠️ ABD/UK/CA/AU: Vize gerekli uyarısı
 
-### 1️⃣ GitHub Secrets Ekle
+### 🔄 Hub Arbitrajı
+- Istanbul pahalıysa Sofia/Abu Dhabi alternatifi
+- Positioning flight + hub flight = Büyük tasarruf
 
-**Çok Önemli!** Repo public olduğu için tokenleri korumamız lazım:
+### 📊 Gelişmiş Analitik
+- 90 günlük fiyat geçmişi
+- Fiyat elastikiyeti tahmini ("Kaç saat dayanır?")
+- Gerçek maliyet hesaplama (bagaj + ulaşım)
+- Multi-source validation
 
-1. **GitHub'da:** Bu repo → **Settings** → **Secrets and variables** → **Actions**
-2. **New repository secret** ile şu 3 secret'ı ekle:
-
-| Secret Name | Secret Value |
-|-------------|--------------|
-| `BOT_TOKEN` | `your_bot_token_here` |
-| `ADMIN_ID` | `YOUR_ADMIN_ID` |
-| `GROUP_ID` | `YOUR_GROUP_ID` |
-
-### 2️⃣ Actions'ı Etkinleştir
-
-- **Actions** sekmesi → "I understand my workflows, go ahead and enable them"
-
-### 3️⃣ İlk Test
-
-- **Actions** → "PROJECT TITAN - Flight Sniper" → **Run workflow**
-
-✅ **Bitti!** Artık her 4 saatte bir otomatik çalışacak.
+### 🛡️ Self-Healing
+- Başarı oranı izleme
+- Otomatik IP rotation önerisi
+- Sistem sağlığı raporları
 
 ---
 
-## Yerel Test (Bilgisayarında)
+## 🚀 Hızlı Başlangıç
 
-### Windows
+### ✅ Ön Koşullar
+
+**Bot Kimlik Bilgileri:**
+- Bot Token: Hazır (config.py'de)
+- Admin ID: Hazır (config.py'de)
+- Grup ID: Hazır (config.py'de)
+
+**NOT:** Tokenler artık `config.py` içinde hardcoded! GitHub Secrets'a gerek yok.
+
+### 📦 Kurulum (3 Adım)
+
+#### 1️⃣ Dosyaları İndir
 
 ```bash
-# 1. Dosyaları indir
-git clone https://github.com/HknSoldier/ucuza-ucu.git
-cd ucuza-ucu
+git clone https://github.com/YOUR_USERNAME/PROJECT-TITAN-V2.git
+cd PROJECT-TITAN-V2
+```
 
-# 2. Environment dosyasını oluştur
-copy .env.example .env
-# .env dosyasını aç ve tokenlerini yaz
+#### 2️⃣ Python Bağımlılıklarını Kur
 
-# 3. Kurulum
+**Windows:**
+```bash
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 playwright install chromium
-
-# 4. Test
-python test_telegram.py
-
-# 5. Çalıştır
-python main.py
 ```
 
-### Mac/Linux
-
+**Mac/Linux:**
 ```bash
-# 1. Dosyaları indir
-git clone https://github.com/HknSoldier/ucuza-ucu.git
-cd ucuza-ucu
-
-# 2. Environment dosyasını oluştur
-cp .env.example .env
-# .env dosyasını düzenle ve tokenlerini yaz
-
-# 3. Hızlı kurulum
-chmod +x run.sh
-./run.sh
-
-# VEYA manuel:
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
+```
+
+#### 3️⃣ Test Et
+
+```bash
 python test_telegram.py
+```
+
+Telegram'ınızı kontrol edin - test mesajı geldi mi? ✅
+
+---
+
+## ▶️ Çalıştırma
+
+### Tek Seferlik Test
+```bash
 python main.py
 ```
 
----
-
-## Dosya Yapısı
-
-```
-project-titan/
-├── main.py              # Ana orkestratör
-├── scraper_engine.py    # Hibrit scraping motoru
-├── intel_center.py      # RSS & rota üreteci
-├── notifier.py          # Telegram (SECURE - env vars)
-├── config.py            # Konfigürasyon
-├── requirements.txt     # Python bağımlılıkları
-├── test_telegram.py     # Telegram test scripti
-├── .env.example         # Environment örneği (KOPYALA)
-├── .env                 # Senin tokenlerin (GİT IGNORE)
-├── run.sh               # Hızlı başlatma scripti
-├── .github/
-│   └── workflows/
-│       └── sniper.yml   # GitHub Actions (SECURE)
-├── README.md
-├── INSTALL.md
-└── TROUBLESHOOTING.md   # Sorun giderme kılavuzu
+### Sürekli Monitoring (Her 4 Saatte Bir)
+`main.py` dosyasındaki son satırı değiştir:
+```python
+# await titan.run_intelligence_cycle()  # Bunu kapat
+await titan.run_forever()  # Bunu aç
 ```
 
----
-
-## Nasıl Çalışır?
-
-1. **Intel Toplama**: RSS feedlerinden trend destinasyonları çeker
-2. **Rota Üretimi**: Stratejik hub'lardan (IST, SAW, SOF vb.) rotalar oluşturur
-3. **Akıllı Tarama**: Rastgele tarihler seçer (3-11 ay arası)
-4. **Hibrit Scraping**:
-   - Önce fast-flights dener (hızlı)
-   - Başarısız olursa Playwright açar (garantili)
-5. **Deal Analizi**:
-   - Fiyat geçmişi ile karşılaştırır
-   - Green Zone algılar (%20 altı)
-   - Sofia hack eşiklerini uygular
-6. **Akıllı Bildirim**: Sadece gerçek fırsatları Telegram'a gönderir
+### GitHub Actions ile Otomatik (Önerilen)
+1. **Actions** sekmesi → "I understand my workflows, go ahead and enable them"
+2. **Actions** → "PROJECT TITAN V2.3" → **Run workflow**
+3. ✅ Her 4 saatte bir otomatik çalışacak!
 
 ---
 
-## Sofia Hack 🔥
+## 📁 Dosya Yapısı
 
-Sofia (SOF) rotaları için eşikler çok daha düşük:
-- **SOF → JFK**: 10,000 TL (IST'den 20,000 TL daha ucuz!)
-- **SOF → LAX**: 12,000 TL
-- **SOF → ORD**: 11,000 TL
-
-**Strateji:** Türkiye → Sofia ucuz bilet + Sofia → ABD = Büyük tasarruf!
-
----
-
-## Özelleştirme
-
-`config.py` dosyasını düzenle:
-- Eşikler (thresholds)
-- Havalimanları (origins, destinations)
-- Tarama parametreleri
-- RSS feed kaynakları
+```
+PROJECT-TITAN-V2/
+├── config.py               # Ana yapılandırma (tokenler burada!)
+├── main.py                 # Orkestratör
+├── scraper_engine.py       # Gelişmiş scraping motoru
+├── intel_center.py         # RSS + rota üreteci + hub arbitraj
+├── notifier.py             # Telegram (Ghost Protocol + Anti-Spam)
+├── price_analyzer.py       # 🆕 Dip fiyat + elastikiyet analizi
+├── visa_checker.py         # 🆕 Yeşil pasaport vize kontrolü
+├── requirements.txt        # Python bağımlılıkları
+├── test_telegram.py        # Test scripti
+├── sniper.yml              # GitHub Actions workflow
+└── README.md
+```
 
 ---
 
-## Test
+## 🎯 Nasıl Çalışır?
 
-### Telegram Botunu Test Et
+### 1️⃣ RSS Intelligence
+- Trend olan destinasyonları tespit et (Secret Flying, Fly4Free, vb.)
+- Bu destinasyonlara öncelik ver
 
+### 2️⃣ Rota Üretimi
+- **Direkt rotalar:** En yüksek öncelik (gidiş-dönüş, non-stop)
+- **Hub arbitraj:** Istanbul pahalıysa SOF/AUH/DOH alternatifleri
+- **Hidden city:** (Şimdilik devre dışı - riskli)
+
+### 3️⃣ Akıllı Tarama
+- Rastgele tarihler (3-11 ay arası)
+- Multi-date sampling (5 tarih kombinasyonu)
+- Anti-detection (random delays, user-agent rotation)
+
+### 4️⃣ Gelişmiş Analiz
+- ✅ Anomali kontrolü (100 TL - 500K TL arası)
+- ✅ Multi-source validation (2+ kaynak)
+- ✅ Dip fiyat tespiti (En düşük × 1.05)
+- ✅ Mistake fare algılama (%70+ indirim)
+- ✅ Vize kontrolü (Yeşil Pasaport)
+- ✅ Gerçek maliyet (bagaj + ulaşım)
+- ✅ Fiyat elastikiyeti ("6 saat dayanır")
+
+### 5️⃣ Akıllı Bildirim
+- **Ghost Protocol:** Sadece aktif saatlerde bildir (Mistake fare bypass)
+- **Anti-Spam:** Max 1 alarm/rota/24h, max 3 alarm/gün
+- **Alarm Filter:** Sadece gerçek dip fiyatlarda alarm
+
+---
+
+## 🔥 Sofia Hub Hack
+
+Sofia (SOF) üzerinden ABD'ye uçmak çok daha ucuz!
+
+**Örnek:**
+- ❌ **IST → JFK:** 30,000 TL
+- ✅ **IST → SOF + SOF → JFK:** 1,500 + 10,000 = 11,500 TL
+
+**Tasarruf:** 18,500 TL (% 62!)
+
+---
+
+## 📊 Telegram Mesaj Formatı
+
+```
+🦅 PROJECT TITAN – DİP FİYAT ALARMI 💎 | 🔥 MISTAKE FARE
+
+✈️ Rota: SOF ➔ JFK (Direkt)
+📅 Tarih: 2026-06-15 ➔ 2026-06-25 (10 Gece)
+💰 Fiyat: 9,500 TL (Gerçek Maliyet: 10,200 TL)
+🏷️ Havayolu: Turkish Airlines
+🎒 Bagaj: Kabin + 1 Bavul Dahil
+
+📊 Analiz:
+• 90 Günlük Ortalama: 15,000 TL | Dip Eşik: 10,500 TL
+• Tasarruf: %36.7
+• ✅ Vize Durumu: VİZE GEREKLİ (B1/B2)
+
+🔗 [✈️ UÇUŞ LİNKİ] | [🏨 OTEL LİNKİ]
+⚡ AKSİYON: 🔥 HEMEN AL
+⏱️ Tahmini Süre: < 6 saat 🔥
+```
+
+---
+
+## ⚙️ Özelleştirme
+
+`config.py` dosyasını düzenleyerek:
+- Fiyat eşiklerini değiştir
+- Havalimanları ekle/çıkar
+- Aktif saatleri ayarla
+- Anti-spam limitlerini değiştir
+- RSS feedleri güncelle
+
+---
+
+## 🛠️ Sorun Giderme
+
+### ❌ "No module named 'config'"
 ```bash
-# Yerel test için önce .env dosyasını oluştur
-cp .env.example .env
-# .env'i düzenle, tokenlerini yaz
-
-# Sonra test et
-python test_telegram.py
+# Doğru dizinde olduğunuzdan emin olun
+pwd  # PROJECT-TITAN-V2 görünmeli
+ls   # config.py görünmeli
 ```
 
-### Syntax Kontrolü
-
-```bash
-python -m py_compile *.py
-```
-
----
-
-## Güvenlik
-
-✅ **GitHub Actions**: Tokenler GitHub Secrets'ta (güvenli!)  
-✅ **Yerel Test**: `.env` dosyası git ignore'da (güvenli!)  
-✅ **Public Repo**: Kodda hiç token yok (güvenli!)  
-✅ **Anti-Detection**: User-Agent rotation, rastgele sleep  
-✅ **Hata Toleransı**: Kod asla çökmez  
-
----
-
-## Sorun mu Var?
-
-1. **TROUBLESHOOTING.md** dosyasını oku (her şey orada!)
-2. Telegram test et: `python test_telegram.py`
-3. Logları kontrol et: `cat titan.log`
-4. GitHub Actions logs: Actions → Failed job → Detayları aç
-
----
-
-## Yaygın Sorunlar
-
-### ❌ "BOT_TOKEN not set"
-
-**GitHub Actions:**
-- Settings → Secrets → BOT_TOKEN, ADMIN_ID, GROUP_ID ekle
-
-**Yerel Test:**
-```bash
-cp .env.example .env
-# .env dosyasını düzenle
-pip install python-dotenv
-```
-
-### ❌ "Telegram message failed"
-
+### ❌ Telegram mesaj gelmiyor
 ```bash
 # Test et
 python test_telegram.py
 
-# Bot token doğru mu?
-# Chat ID doğru mu?
-# İnternet bağlantısı var mı?
+# config.py'deki tokenları kontrol et
+# Admin ID doğru mu?
+# Bot grup/kanala admin olarak eklendi mi?
 ```
 
-### ❌ GitHub Actions Başarısız
-
+### ❌ "Playwright browsers not found"
 ```bash
-# Secrets eklendi mi?
-Settings → Secrets → Actions → Kontrol et
+playwright install chromium
+playwright install-deps chromium
+```
 
-# Logs'a bak
-Actions → Failed job → Her step'i aç → Hata mesajını bul
+### ❌ GitHub Actions başarısız
+```bash
+# Actions → Failed job → Logları incele
+# En yaygın hata: Playwright timeout
+# Çözüm: workflow timeout'u arttır (45 min)
 ```
 
 ---
 
-## Başarı Kriterleri
+## 📈 Performance Metrikleri
 
-✅ GitHub Secrets eklendi (BOT_TOKEN, ADMIN_ID, GROUP_ID)  
-✅ `python test_telegram.py` çalışıyor  
-✅ Telegram'a test mesajı geldi  
-✅ GitHub Actions yeşil ✓  
-✅ Her 4 saatte bir otomatik tarama yapıyor  
+Her cycle sonunda sistem otomatik rapor oluşturur:
+- Total Routes
+- Success Rate
+- Avg Scan Time
+- Bottom Deals
+- Mistake Fares
+- Alerts Sent
 
 ---
 
-## Lisans
+## 🔒 Güvenlik
+
+✅ **Tokenler:** config.py'de (private repo ise güvenli)  
+✅ **Rate Limiting:** Max 3 istek / 10 saniye  
+✅ **Robots.txt Uyumlu:** TOS compliant  
+✅ **Anti-Detection:** User-agent rotation, random delays  
+✅ **Self-Healing:** Otomatik IP rotation önerisi  
+
+---
+
+## 🤝 Katkıda Bulunma
+
+Pull request'ler memnuniyetle karşılanır!
+
+**İyileştirme Fikirleri:**
+- Daha fazla RSS feed kaynağı
+- Alternatif scraping motorları (Kayak, Skyscanner)
+- Machine learning fiyat tahmini
+- WhatsApp/Discord entegrasyonu
+
+---
+
+## 📄 Lisans
 
 MIT - Özgürce kullan, değiştir, zengin ol! 🚀
 
 ---
 
+## 🙏 Teşekkürler
+
+- **Google Flights** - Veri kaynağı
+- **Secret Flying** - RSS intelligence
+- **Playwright** - Scraping engine
+- **Telegram** - Notification platform
+
+---
+
 **Made with 🦅 by TITAN Team**
 
-*Güvenli şekilde uçuş ara, zengin ol! ✈️💰🔒*
+*Akıllıca uç, ucuza uç! ✈️💎*

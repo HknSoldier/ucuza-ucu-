@@ -1,8 +1,8 @@
-name: PROJECT TITAN - Flight Sniper
+name: PROJECT TITAN V2.3 - Flight Sniper
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '0 */4 * * *'  # Her 4 saatte bir
   workflow_dispatch:
   push:
     branches:
@@ -11,38 +11,35 @@ on:
 jobs:
   hunt:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45  # Daha uzun timeout (gelişmiş özellikler için)
     
     steps:
-    - name: Checkout code
+    - name: 📥 Checkout code
       uses: actions/checkout@v4
     
-    - name: Set up Python
+    - name: 🐍 Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         cache: 'pip'
     
-    - name: Install dependencies
+    - name: 📦 Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Install Playwright browsers
+    - name: 🎭 Install Playwright browsers
       run: |
         playwright install chromium
         playwright install-deps chromium
     
-    - name: Run TITAN
+    - name: 🦅 Run PROJECT TITAN V2.3
       run: |
         python main.py
       env:
-        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        ADMIN_ID: ${{ secrets.ADMIN_ID }}
-        GROUP_ID: ${{ secrets.GROUP_ID }}
         PYTHONUNBUFFERED: 1
     
-    - name: Upload logs
+    - name: 📊 Upload logs & artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
@@ -50,6 +47,18 @@ jobs:
         path: |
           titan.log
           titan_state.json
+          notification_state.json
           debug_*.png
         retention-days: 7
         if-no-files-found: warn
+    
+    - name: 📈 Display Stats
+      if: always()
+      run: |
+        echo "=== TITAN Performance Stats ==="
+        if [ -f titan.log ]; then
+          echo "Log file size: $(wc -l titan.log | awk '{print $1}') lines"
+          echo ""
+          echo "Last 20 lines:"
+          tail -n 20 titan.log
+        fi

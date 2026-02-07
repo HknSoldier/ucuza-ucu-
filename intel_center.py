@@ -1,128 +1,289 @@
-# intel_center.py - Intelligence & Route Generation
+# intel_center.py - Advanced Intelligence & Route Generation V2.3
+# 🛰️ Hub Arbitrage + Hidden City + Multi-source RSS
+
 import logging
 import feedparser
-from typing import List, Dict
 import random
+from typing import List, Dict, Optional, Tuple
+import re
 
 logger = logging.getLogger(__name__)
 
 class IntelCenter:
     """
-    Intelligence gathering center
-    - Parses RSS feeds for trending deals
-    - Generates strategic routes with hub logic
+    Gelişmiş istihbarat merkezi:
+    - RSS feed analizi
+    - Hub arbitraj stratejisi
+    - Hidden city routing
+    - Alternativ havalimanı önerileri
     """
     
-    def __init__(self):
-        self.rss_feeds = [
-            "https://www.secretflying.com/feed/",
-            "https://www.fly4free.com/feed/",
-            "https://www.theflightdeal.com/feed/"
-        ]
-        
-        # Strategic origins (Turkish airports + Sofia hub)
-        self.origins = ["IST", "SAW", "ADB", "ESB", "AYT", "TZX", "SOF"]
-        
-        # High-value destinations
-        self.destinations = {
-            "USA": ["JFK", "LAX", "ORD", "MIA", "BOS", "SFO", "SEA"],
-            "Europe": ["LHR", "CDG", "AMS", "FCO", "BCN", "BER"],
-            "Asia": ["DXB", "BKK", "SIN", "HKG", "NRT"],
-            "Oceania": ["SYD", "MEL"]
-        }
+    def __init__(self, config):
+        self.config = config
+        self.origins = config.ORIGINS
+        self.destinations = config.DESTINATIONS
+        self.hub_alternatives = config.HUB_ALTERNATIVES
+        self.rss_feeds = config.RSS_FEEDS
     
-    def _parse_rss_feeds(self) -> List[str]:
+    def _parse_rss_feeds(self) -> Dict[str, int]:
         """
-        Parse RSS feeds and extract trending destinations
+        RSS feedlerden trending destinasyonları çek
+        Returns: {airport_code: popularity_score}
         """
-        trending = set()
+        trending = {}
         
         for feed_url in self.rss_feeds:
             try:
-                logger.info(f"Parsing RSS feed: {feed_url}")
-                feed = feedparser.parse(feed_url)
+                logger.info(f"📡 RSS parsing: {feed_url}")
+                feed = feedparser.parse(feed_url, timeout=10)
                 
-                for entry in feed.entries[:10]:  # Top 10 entries
+                for entry in feed.entries[:15]:  # Top 15
                     title = entry.get('title', '').upper()
-                    # Extract airport codes (3 letters)
-                    import re
-                    codes = re.findall(r'\b[A-Z]{3}\b', title)
-                    trending.update(codes)
+                    summary = entry.get('summary', '').upper()
+                    text = f"{title} {summary}"
                     
+                    # 3 harfli havalimanı kodlarını çıkar
+                    codes = re.findall(r'\b[A-Z]{3}\b', text)
+                    
+                    for code in codes:
+                        # İstanbul/Türkiye kodlarını filtrele (bunlar origin)
+                        if code not in ["IST", "SAW", "ADB", "ESB", "AYT", "TZX", "TUR", "TRY"]:
+                            trending[code] = trending.get(code, 0) + 1
+                
+                logger.info(f"✅ RSS parsed: {len(feed.entries)} entries")
+                
             except Exception as e:
-                logger.warning(f"Failed to parse {feed_url}: {e}")
+                logger.warning(f"⚠️ RSS parse failed: {feed_url} - {e}")
                 continue
         
-        logger.info(f"Trending destinations from RSS: {trending}")
-        return list(trending)
+        # Popülerliğe göre sırala
+        trending_sorted = dict(sorted(trending.items(), key=lambda x: x[1], reverse=True))
+        logger.info(f"🔥 Trending destinations: {list(trending_sorted.keys())[:10]}")
+        
+        return trending_sorted
     
-    def _generate_base_routes(self) -> List[Dict]:
+    def _generate_direct_routes(self) -> List[Dict]:
         """
-        Generate base route matrix
+        Direkt rotalar (gidiş-dönüş, non-stop)
+        En yüksek öncelik!
         """
         routes = []
         
-        # Combine all destinations
+        # Tüm destinasyonları topla
         all_destinations = []
         for region, airports in self.destinations.items():
             all_destinations.extend(airports)
         
-        # Generate routes from each origin to each destination
         for origin in self.origins:
             for dest in all_destinations:
                 routes.append({
                     "origin": origin,
                     "destination": dest,
-                    "priority": "normal"
+                    "route_type": "direct",
+                    "priority": "high",
+                    "flight_type": "Direkt"
                 })
         
         return routes
     
-    def _prioritize_routes(self, routes: List[Dict], trending: List[str]) -> List[Dict]:
+    def _generate_hub_arbitrage_routes(self, expensive_origin: str = "IST") -> List[Dict]:
         """
-        Prioritize routes based on RSS intel
+        Hub arbitraj rotaları:
+        Istanbul pahalıysa, SOF/AUH/DOH üzerinden git
+        
+        Example:
+        - IST → JFK: 30,000 TL
+        - IST → SOF: 1,500 TL + SOF → JFK: 10,000 TL = 11,500 TL (Tasarruf!)
+        """
+        hub_routes = []
+        
+        if expensive_origin not in self.hub_alternatives:
+            return hub_routes
+        
+        alternative_hubs = self.hub_alternatives[expensive_origin]
+        
+        # Her hub için rotalar oluştur
+        for hub in alternative_hubs:
+            # Hub'a positioning flight
+            positioning = {
+                "origin": expensive_origin,
+                "destination": hub,
+                "route_type": "positioning",
+                "priority": "medium",
+                "flight_type": f"Positioning ({expensive_origin}→{hub})"
+            }
+            hub_routes.append(positioning)
+            
+            # Hub'dan final destinations
+            all_destinations = []
+            for region, airports in self.destinations.items():
+                all_destinations.extend(airports)
+            
+            for dest in all_destinations:
+                main_route = {
+                    "origin": hub,
+                    "destination": dest,
+                    "route_type": "hub_arbitrage",
+                    "positioning_from": expensive_origin,
+                    "priority": "high",
+                    "flight_type": f"Hub Arbitrage ({expensive_origin}→{hub}→{dest})"
+                }
+                hub_routes.append(main_route)
+        
+        logger.info(f"🔄 Hub arbitrage routes generated: {len(hub_routes)}")
+        return hub_routes
+    
+    def _generate_hidden_city_routes(self) -> List[Dict]:
+        """
+        Hidden city routing:
+        Varış noktasında inmek daha ucuz olabilir!
+        
+        Example:
+        - IST → LAX direkt: 35,000 TL
+        - IST → SFO (LAX stopover): 25,000 TL → LAX'ta in!
+        
+        ⚠️ Risk: Bagaj ve dönüş bileti geçersiz olabilir
+        """
+        hidden_routes = []
+        
+        # Büyük hub'lar (stopover olabilecekler)
+        potential_hidden_cities = ["LAX", "SFO", "JFK", "ORD", "DXB", "LHR", "CDG"]
+        
+        for origin in self.origins:
+            for hidden in potential_hidden_cities:
+                # Hidden city'den devam eden rotalar
+                for final_dest in potential_hidden_cities:
+                    if hidden != final_dest:
+                        route = {
+                            "origin": origin,
+                            "destination": final_dest,
+                            "hidden_city": hidden,
+                            "route_type": "hidden_city",
+                            "priority": "low",  # Riskli, düşük öncelik
+                            "flight_type": f"Hidden City ({hidden})",
+                            "warning": "⚠️ Bagaj riski! Sadece el bagajı tavsiye edilir."
+                        }
+                        hidden_routes.append(route)
+        
+        logger.info(f"🕵️ Hidden city routes generated: {len(hidden_routes)}")
+        return hidden_routes
+    
+    def _generate_alternative_airports(self, destination: str, radius_km: int = 160) -> List[str]:
+        """
+        Alternatif havalimanları (160km çevre)
+        
+        Example:
+        - NYC: JFK, EWR, LGA
+        - Paris: CDG, ORY, BVA
+        - London: LHR, LGW, STN, LTN
+        """
+        alternatives = {
+            "JFK": ["EWR", "LGA"],  # New York area
+            "LAX": ["SNA", "BUR", "ONT"],  # LA area
+            "LHR": ["LGW", "STN", "LTN"],  # London area
+            "CDG": ["ORY", "BVA"],  # Paris area
+            "FCO": ["CIA"],  # Rome area
+            "BER": ["SXF"],  # Berlin area
+            "SFO": ["OAK", "SJC"],  # San Francisco area
+            "ORD": ["MDW"],  # Chicago area
+        }
+        
+        return alternatives.get(destination, [])
+    
+    def _prioritize_by_rss(self, routes: List[Dict], trending: Dict[str, int]) -> List[Dict]:
+        """
+        RSS trendlerine göre rotaları önceliklendir
         """
         for route in routes:
-            if route['destination'] in trending:
-                route['priority'] = "high"
+            dest = route['destination']
+            if dest in trending:
+                route['priority'] = 'critical'  # En yüksek öncelik
+                route['trending_score'] = trending[dest]
+            elif route.get('priority') == 'high':
+                route['trending_score'] = 0
         
-        # Sort by priority
-        routes.sort(key=lambda x: 0 if x['priority'] == "high" else 1)
+        # Sıralama: critical > high > medium > low
+        priority_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+        routes.sort(key=lambda x: (
+            priority_order.get(x.get('priority', 'low'), 4),
+            -x.get('trending_score', 0)
+        ))
         
         return routes
     
-    async def get_priority_routes(self) -> List[Dict]:
+    async def get_strategic_routes(self, max_routes: int = 50) -> List[Dict]:
         """
-        Get prioritized list of routes to scan
-        Combines RSS intelligence with strategic hub logic
+        Stratejik rota listesi üret:
+        1. RSS trendlerini parse et
+        2. Direkt rotalar (en yüksek öncelik)
+        3. Hub arbitraj rotaları
+        4. Hidden city rotaları (düşük öncelik)
+        5. RSS'e göre önceliklendir
+        6. Sample al (max_routes kadar)
         """
         try:
-            # Parse RSS feeds for trending destinations
+            # 1. RSS intelligence
             trending = self._parse_rss_feeds()
             
-            # Generate base routes
-            routes = self._generate_base_routes()
+            # 2. Direkt rotalar (mutlak öncelik)
+            direct_routes = self._generate_direct_routes()
             
-            # Prioritize based on RSS intel
-            routes = self._prioritize_routes(routes, trending)
+            # 3. Hub arbitraj
+            hub_routes = self._generate_hub_arbitrage_routes("IST")
             
-            # Sample routes (don't scan all at once to avoid detection)
-            # High priority: all
-            # Normal priority: random sample
-            high_priority = [r for r in routes if r['priority'] == "high"]
-            normal_priority = [r for r in routes if r['priority'] == "normal"]
+            # 4. Hidden city (riskli, düşük öncelik)
+            # hidden_routes = self._generate_hidden_city_routes()  # Şimdilik devre dışı
             
-            # Take all high priority + 20 random normal priority
-            sampled = high_priority + random.sample(
-                normal_priority, 
-                min(20, len(normal_priority))
-            )
+            # Tüm rotaları birleştir
+            all_routes = direct_routes + hub_routes  # + hidden_routes
             
-            logger.info(f"Generated {len(sampled)} routes for scanning ({len(high_priority)} high priority)")
+            # 5. RSS'e göre önceliklendir
+            prioritized = self._prioritize_by_rss(all_routes, trending)
             
-            return sampled
+            # 6. Sample al
+            # Critical routes: hepsini al
+            # High routes: rastgele sample
+            critical = [r for r in prioritized if r.get('priority') == 'critical']
+            high = [r for r in prioritized if r.get('priority') == 'high']
+            medium = [r for r in prioritized if r.get('priority') == 'medium']
+            
+            # Smart sampling
+            selected = critical  # Tüm critical rotalar
+            remaining = max_routes - len(selected)
+            
+            if remaining > 0:
+                selected += random.sample(high, min(remaining, len(high)))
+            
+            remaining = max_routes - len(selected)
+            if remaining > 0:
+                selected += random.sample(medium, min(remaining, len(medium)))
+            
+            logger.info(f"🎯 Strategic routes: {len(selected)} routes selected")
+            logger.info(f"   - Critical: {len(critical)}")
+            logger.info(f"   - High: {len([r for r in selected if r.get('priority')=='high'])}")
+            logger.info(f"   - Medium: {len([r for r in selected if r.get('priority')=='medium'])}")
+            
+            return selected[:max_routes]
             
         except Exception as e:
-            logger.error(f"Error in intel center: {e}")
-            # Return basic routes as fallback
-            return self._generate_base_routes()[:20]
+            logger.error(f"❌ Intel center error: {e}")
+            # Fallback: basit rotalar
+            return self._generate_direct_routes()[:max_routes]
+    
+    def calculate_hub_arbitrage_savings(self, direct_price: float, 
+                                       positioning_price: float, 
+                                       hub_price: float) -> Dict:
+        """
+        Hub arbitraj tasarruf hesaplama
+        """
+        total_hub_cost = positioning_price + hub_price
+        savings = direct_price - total_hub_cost
+        savings_percent = (savings / direct_price) * 100 if direct_price > 0 else 0
+        
+        return {
+            "direct_price": direct_price,
+            "hub_total": total_hub_cost,
+            "savings": savings,
+            "savings_percent": savings_percent,
+            "recommendation": "HUB KULLAN" if savings > 0 else "DİREKT GİT"
+        }

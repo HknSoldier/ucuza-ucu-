@@ -1,146 +1,280 @@
-# scraper_engine.py - FIXED & PRODUCTION READY
+# scraper_engine.py - Advanced Scraper with Quality Control V2.3
+# 🔍 Multi-source validation + Anomaly detection + Stealth mode
+
 import asyncio
 import logging
 import random
 import re
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from playwright.async_api import async_playwright
+import time
 
 logger = logging.getLogger(__name__)
 
 class ScraperEngine:
     """
-    Titan Class Scraper - Official Google Flights URL & Smart Selectors
+    Gelişmiş scraping motoru:
+    - Multi-source validation (2+ kaynak)
+    - Anomaly detection (100-500K TL arası)
+    - Stealth mode (random delays, user-agents)
+    - TOS compliant rate limiting
     """
     
-    def __init__(self):
-        self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        ]
-
+    def __init__(self, config):
+        self.config = config
+        self.user_agents = config.USER_AGENTS
+        self.request_times = []  # Rate limiting tracker
+    
+    def _check_rate_limit(self) -> bool:
+        """
+        Rate limiting: Max 3 requests / 10 seconds
+        """
+        now = time.time()
+        # Eski istekleri temizle (10 saniyeden eski)
+        self.request_times = [t for t in self.request_times if now - t < 10]
+        
+        if len(self.request_times) >= self.config.MAX_REQUESTS_PER_10_SEC:
+            logger.warning("⚠️ Rate limit reached, waiting...")
+            return False
+        
+        return True
+    
+    def _record_request(self):
+        """İstek zamanını kaydet"""
+        self.request_times.append(time.time())
+    
+    async def _wait_for_rate_limit(self):
+        """Rate limit aşıldıysa bekle"""
+        while not self._check_rate_limit():
+            await asyncio.sleep(2)
+    
     async def _handle_cookie_consent(self, page):
-        """Çerezleri reddet veya kabul et"""
+        """Cookie consent ekranını kapat"""
         try:
-            # Google'ın standart butonları
             buttons = [
-                "button[aria-label*='Reject all']",
+                "button[aria-label*='Reject']",
                 "button[aria-label*='Tümünü reddet']",
                 "button:has-text('Reject all')",
-                "button:has-text('Tümünü reddet')",
-                "button:has-text('Accept all')",
-                "span:has-text('Kabul et')"
+                "button:has-text('Tümünü reddet')"
             ]
+            
             for selector in buttons:
-                if await page.is_visible(selector, timeout=3000):
-                    logger.info("🍪 Cookie banner kapatılıyor...")
-                    await page.click(selector)
-                    await asyncio.sleep(2)
-                    return
+                try:
+                    if await page.is_visible(selector, timeout=3000):
+                        logger.info("🍪 Cookie banner kapatılıyor...")
+                        await page.click(selector)
+                        await asyncio.sleep(2)
+                        return
+                except:
+                    continue
         except:
             pass
-
-    async def scrape_flight(self, origin: str, destination: str, departure_date: str, return_date: str) -> Optional[Dict]:
+    
+    async def scrape_flight(self, origin: str, destination: str, 
+                           departure_date: str, return_date: str) -> Optional[Dict]:
+        """
+        Ana scraping fonksiyonu
+        Returns: {price, currency, airline, method, confidence}
+        """
+        # Rate limit kontrolü
+        await self._wait_for_rate_limit()
+        
         browser = None
-        # RESMİ GOOGLE URL'si (En sağlıklısı budur)
         url = (
-            f"https://www.google.com/travel/flights?q=Flights+to+{destination}+from+{origin}+on+{departure_date}+through+{return_date}&curr=TRY"
+            f"https://www.google.com/travel/flights?"
+            f"q=Flights+to+{destination}+from+{origin}+"
+            f"on+{departure_date}+through+{return_date}&curr=TRY"
         )
-
+        
         try:
+            self._record_request()
+            
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
-                    headless=True, # Actions için True
-                    args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
+                    headless=True,
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage'
+                    ]
                 )
                 
                 context = await browser.new_context(
                     user_agent=random.choice(self.user_agents),
                     viewport={'width': 1920, 'height': 1080},
-                    locale='en-US' # İngilizce zorla ki "TL" parse etmek kolay olsun
+                    locale='tr-TR'
                 )
                 
                 page = await context.new_page()
                 
-                # Bot algılamayı zorlaştır
-                await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-                logger.info(f"📍 Navigating to official site: {url}")
+                # Bot detection bypass
+                await page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                    Object.defineProperty(navigator, 'languages', {get: () => ['tr-TR', 'tr', 'en-US', 'en']});
+                """)
+                
+                logger.info(f"🔍 Scraping: {origin} → {destination} ({departure_date})")
+                
+                # Sayfa yükle
                 await page.goto(url, timeout=60000, wait_until='domcontentloaded')
                 
                 # Cookie kapat
                 await self._handle_cookie_consent(page)
                 
-                logger.info("⏳ Waiting for flight results grid...")
+                # Sonuçların yüklenmesini bekle
+                await page.wait_for_selector('div[role="main"]', timeout=20000)
                 
-                # Fiyatların olduğu ana listeyi bekle (Daha uzun süre)
-                try:
-                    # R15d6c sınıfı genelde uçuş kartlarıdır, aria-label="View flight details" de olabilir
-                    await page.wait_for_selector('div[role="main"]', timeout=20000)
-                    # Biraz scroll yap ki yüklensin
-                    await page.mouse.wheel(0, 800)
-                    await asyncio.sleep(5) 
-                except:
-                    logger.warning("⚠️ Sonuçlar geç yüklendi veya yüklenemedi.")
-
-                # Screenshot al (Hata analizi için şart)
-                screenshot_name = f"debug_{origin}_{destination}.png"
+                # Scroll ile daha fazla içerik yükle
+                await page.mouse.wheel(0, 800)
+                await asyncio.sleep(random.uniform(3, 5))
+                
+                # Screenshot (debug için)
+                screenshot_name = f"debug_{origin}_{destination}_{int(time.time())}.png"
                 await page.screenshot(path=screenshot_name)
                 
-                # --- İYİLEŞTİRİLMİŞ FİYAT OKUMA ---
-                content = await page.content()
-                prices = []
-
-                # 1. Regex ile TRY/TL arama (Sayfadaki metin üzerinden)
-                # "TRY 12,345" veya "12,345 TL" formatlarını yakalar
-                matches = re.findall(r'(?:TRY|TL)\s?([\d,.]+)|([\d,.]+)\s?(?:TRY|TL)', content)
+                # Fiyatları topla
+                prices = await self._extract_prices(page)
                 
-                for m in matches:
-                    # Regex grubu hangisi doluysa onu al
-                    val_str = m[0] if m[0] else m[1]
-                    try:
-                        # Virgül ve noktayı temizle
-                        clean_price = float(val_str.replace(',', '').replace('.', ''))
-                        
-                        # FİLTRE: 505 TL gibi saçma rakamları ele (Min 1000 TL)
-                        # Uluslararası uçuşlarda 1000 TL altı imkansız
-                        if clean_price > 1000: 
-                            prices.append(clean_price)
-                    except:
-                        continue
-
-                # 2. Aria-Label Taraması (Yedek Yöntem)
-                elements = await page.query_selector_all('[aria-label*="Turkish Lira"]')
-                for el in elements:
-                    txt = await el.get_attribute("aria-label")
+                await browser.close()
+                
+                # Multi-source validation
+                if len(prices) < 2:
+                    logger.warning(f"⚠️ Yetersiz kaynak: {len(prices)} fiyat bulundu")
+                    return None
+                
+                # Anomali algılama
+                valid_prices = [p for p in prices if self._is_sane_price(p)]
+                
+                if not valid_prices:
+                    logger.error(f"❌ Tüm fiyatlar anomali! Prices: {prices}")
+                    return None
+                
+                # En ucuz fiyat
+                cheapest = min(valid_prices)
+                
+                # Confidence hesapla
+                confidence = self._calculate_confidence(valid_prices)
+                
+                logger.info(f"✅ Success: {cheapest:,.0f} TL (Confidence: {confidence:.1%})")
+                
+                return {
+                    'price': cheapest,
+                    'currency': 'TRY',
+                    'airline': 'Multiple',  # TODO: Havayolu parse
+                    'method': 'playwright-stealth',
+                    'confidence': confidence,
+                    'sources': len(valid_prices),
+                    'all_prices': valid_prices
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Scraping error: {e}")
+            if browser:
+                await browser.close()
+            return None
+    
+    async def _extract_prices(self, page) -> List[float]:
+        """
+        Sayfadan fiyatları çıkar (multi-method)
+        """
+        prices = []
+        
+        try:
+            # Method 1: Regex ile TRY/TL arama
+            content = await page.content()
+            matches = re.findall(r'(?:TRY|TL)\s?([\d,.]+)|([\d,.]+)\s?(?:TRY|TL)', content)
+            
+            for m in matches:
+                val_str = m[0] if m[0] else m[1]
+                try:
+                    clean_price = float(val_str.replace(',', '').replace('.', ''))
+                    if clean_price > 1000:  # Min 1000 TL
+                        prices.append(clean_price)
+                except:
+                    continue
+            
+            # Method 2: Aria-label taraması
+            elements = await page.query_selector_all('[aria-label*="lira"]')
+            for el in elements:
+                txt = await el.get_attribute("aria-label")
+                if txt:
                     nums = re.findall(r'(\d+[\d,]*)', txt)
                     for n in nums:
                         try:
                             val = float(n.replace(',', ''))
-                            if val > 1000: prices.append(val)
-                        except: pass
-
-                await browser.close()
-                
-                # Fiyatları temizle
-                prices = sorted(list(set(prices)))
-                
-                if prices:
-                    # En ucuz mantıklı fiyatı al
-                    cheapest = prices[0]
-                    logger.info(f"✅ SUCCESS! Found valid prices. Cheapest: {cheapest:,.0f} TL")
-                    return {
-                        'price': cheapest,
-                        'currency': 'TRY',
-                        'airline': 'Google Flights',
-                        'method': 'titan-playwright-v2',
-                        'url': url
-                    }
-                else:
-                    logger.warning(f"⚠️ No valid prices found (>1000 TL). Check {screenshot_name}")
-                    return None
-
+                            if val > 1000:
+                                prices.append(val)
+                        except:
+                            pass
+            
+            # Method 3: Class-based selectors (Google Flights specific)
+            price_elements = await page.query_selector_all('.YMlIz.FpEdX, .U3gSDe')
+            for el in price_elements:
+                txt = await el.text_content()
+                if txt:
+                    nums = re.findall(r'(\d+[\d,\.]*)', txt)
+                    for n in nums:
+                        try:
+                            clean = float(n.replace(',', '').replace('.', ''))
+                            if clean > 1000:
+                                prices.append(clean)
+                        except:
+                            pass
+            
         except Exception as e:
-            logger.error(f"❌ Scraping error: {e}")
-            if browser: await browser.close()
-            return None
+            logger.error(f"❌ Price extraction error: {e}")
+        
+        # Deduplicate ve sırala
+        prices = sorted(list(set(prices)))
+        logger.info(f"📊 Extracted {len(prices)} unique prices: {prices[:5]}")
+        
+        return prices
+    
+    def _is_sane_price(self, price: float) -> bool:
+        """
+        Anomali algılama: 100 TL - 500K TL arası mantıklı
+        """
+        return self.config.MIN_SANE_PRICE <= price <= self.config.MAX_SANE_PRICE
+    
+    def _calculate_confidence(self, prices: List[float]) -> float:
+        """
+        Confidence skoru hesapla (0.0 - 1.0)
+        Fiyatlar birbirine ne kadar yakınsa confidence yüksek
+        """
+        if len(prices) < 2:
+            return 0.5
+        
+        avg = sum(prices) / len(prices)
+        variance = sum((p - avg) ** 2 for p in prices) / len(prices)
+        std_dev = variance ** 0.5
+        
+        # %10'dan az sapma = yüksek confidence
+        if std_dev / avg < 0.10:
+            return 0.95
+        elif std_dev / avg < 0.20:
+            return 0.80
+        elif std_dev / avg < 0.30:
+            return 0.60
+        else:
+            return 0.40
+    
+    async def verify_price(self, route: Dict, initial_price: float) -> bool:
+        """
+        Fiyatı tekrar doğrula (özellikle mistake fare için)
+        """
+        logger.info(f"🔍 Verifying price: {initial_price:,.0f} TL")
+        
+        result = await self.scrape_flight(
+            route['origin'],
+            route['destination'],
+            route.get('departure_date', '2026-06-01'),
+            route.get('return_date', '2026-06-10')
+        )
+        
+        if result and abs(result['price'] - initial_price) / initial_price < 0.10:
+            logger.info("✅ Price verified!")
+            return True
+        
+        logger.warning("⚠️ Price mismatch in verification")
+        return False

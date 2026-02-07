@@ -1,5 +1,5 @@
-# PROJECT TITAN - Requirements
-# Core dependencies for hybrid scraping engine
+# PROJECT TITAN V2.3 - Requirements
+# Enterprise-grade Flight Intelligence System
 
 # HTTP & Async
 aiohttp>=3.9.0,<4.0.0
@@ -7,11 +7,14 @@ aiohttp>=3.9.0,<4.0.0
 # RSS Feed Parser
 feedparser>=6.0.0,<7.0.0
 
-# Browser Automation (Fallback Method)
+# Browser Automation (Stealth Mode)
 playwright>=1.40.0,<2.0.0
 
 # Date Handling
 python-dateutil>=2.8.0,<3.0.0
 
-# Environment Variables (for local testing only, optional)
+# Environment Variables (optional for local testing)
 python-dotenv>=1.0.0,<2.0.0
+
+# Statistics (built-in, no install needed)
+# JSON (built-in, no install needed)
