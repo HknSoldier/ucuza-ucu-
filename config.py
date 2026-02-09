@@ -27,17 +27,20 @@ class TitanConfig:
     ROUTES_TO_SCAN = 15   # Her döngüde taranacak rota sayısı (Eski: 30)
     DATES_PER_ROUTE = 4   # Her rota için denenecek tarih sayısı (Eski: 5)
     
-    # ==================== ALARM FILTER (GERÇEK FIRSATLAR) ====================
-    # Sadece gerçek dip fiyatlarda alarm (90 günlük en düşük x 1.05)
-    ALARM_PRICE_MULTIPLIER = 1.05 
+    # ==================== ALARM FILTER (CİMRİ MOD / GERÇEK FIRSATLAR) ====================
+    # ⚠️ KRİTİK AYAR: Sadece ortalamanın %10 altına düşerse haber ver
+    # (Eski ayar 1.05 idi, yani pahalı olsa bile haber veriyordu)
+    ALARM_PRICE_MULTIPLIER = 0.90 
+    
+    # ==================== DİP AVCISI EŞİKLERİ ====================
+    # "HEMEN AL" etiketi için fiyat ortalamanın %20 altında olmalı!
+    PRICE_BOTTOM_MULTIPLIER = 0.80  
+    # "NORMAL" fırsat için fiyat ortalamanın %10 altında olmalı
+    PRICE_NORMAL_MULTIPLIER = 0.90   
     
     # ==================== ANTI-SPAM SINIRLAMALARI ====================
     MAX_ALERTS_PER_ROUTE_PER_DAY = 1  # Aynı rota için max 1 alarm/24h
     MAX_TOTAL_ALERTS_PER_DAY = 3      # Toplam max 3 alarm/gün
-    
-    # ==================== DİP AVCISI ESIKLERI ====================
-    PRICE_BOTTOM_MULTIPLIER = 1.05  # Dip fiyat = En düşük × 1.05
-    PRICE_NORMAL_MULTIPLIER = 1.0   # Normal = Ortalama
     
     # ==================== STRATEJİK HAVAALANLARI ====================
     # Ana kalkış noktaları (Türkiye + Sofia hub)
