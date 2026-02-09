@@ -39,17 +39,57 @@ class UcuzaucakScraper:
         try:
             # Şehir isimlerini havalimanı kodlarına çevir
             city_to_code = {
+                # Türkiye
                 "İstanbul": "IST",
-                "Ankara": "ANK", 
+                "Ankara": "ESB", 
                 "İzmir": "ADB",
                 "Antalya": "AYT",
+                "Trabzon": "TZX",
+                "Dalaman": "DLM",
+                "Bodrum": "BJV",
+                
+                # Avrupa
                 "Budapeşte": "BUD",
                 "Seul": "ICN",
                 "Bükreş": "OTP",
-                "Hurghada": "HRG",
-                "Singapur": "SIN",
+                "Sofya": "SOF",
                 "Berlin": "BER",
-                # Daha fazla eklenebilir
+                "Paris": "CDG",
+                "Londra": "LHR",
+                "Amsterdam": "AMS",
+                "Roma": "FCO",
+                "Barselona": "BCN",
+                "Madrid": "MAD",
+                "Viyana": "VIE",
+                "Prag": "PRG",
+                "Varşova": "WAW",
+                
+                # Asya/Ortadoğu
+                "Singapur": "SIN",
+                "Dubai": "DXB",
+                "Abu Dhabi": "AUH",
+                "Doha": "DOH",
+                "Bangkok": "BKK",
+                "Tokyo": "NRT",
+                "Seul": "ICN",
+                
+                # Afrika
+                "Hurghada": "HRG",
+                "Sharm El Sheikh": "SSH",
+                "Kahire": "CAI",
+                
+                # Amerika
+                "New York": "JFK",
+                "Los Angeles": "LAX",
+                "Miami": "MIA",
+                "Boston": "BOS",
+                "San Francisco": "SFO",
+                "Chicago": "ORD",
+                "Seattle": "SEA",
+                
+                # Diğer
+                "Melbourne": "MEL",
+                "Sidney": "SYD",
             }
             
             # Regex ile şehir isimlerini çıkar
@@ -117,56 +157,114 @@ class UcuzaucakScraper:
                 # Fiyat kartlarını bul
                 deals = []
                 
-                # Sayfa yapısına göre selector (örnek)
-                # Gerçek HTML yapısına göre güncellenmeli
-                cards = await page.query_selector_all('div.flight-card, div.deal-card')
+                # ucuzaucak.net için özel selector'lar
+                # Site yapısına göre güncellendi
                 
-                if not cards:
-                    # Alternatif selector
-                    cards = await page.query_selector_all('[class*="flight"], [class*="deal"]')
+                # Önce ana container'ı bul
+                main_container = await page.query_selector('main, .main-content, #content')
+                
+                if not main_container:
+                    logger.warning("Main container not found, trying body")
+                    main_container = await page.query_selector('body')
+                
+                # Kart selector'ları (birden fazla alternatif)
+                card_selectors = [
+                    'article',  # Genelde article tag kullanılır
+                    '.deal-card',
+                    '.flight-card',
+                    '[class*="card"]',
+                    'div[class*="flight"]',
+                    'div[class*="deal"]'
+                ]
+                
+                cards = []
+                for selector in card_selectors:
+                    if main_container:
+                        cards = await main_container.query_selector_all(selector)
+                    else:
+                        cards = await page.query_selector_all(selector)
+                    
+                    if len(cards) > 0:
+                        logger.info(f"Using selector: {selector}")
+                        break
                 
                 logger.info(f"Found {len(cards)} cards on page {page_num}")
                 
-                for card in cards:
+                for idx, card in enumerate(cards):
                     try:
-                        # Rota bilgisi
-                        route_elem = await card.query_selector('h3, .route-title, .flight-route')
-                        if route_elem:
-                            route_text = await route_elem.text_content()
-                            route_info = self._parse_route_from_text(route_text)
-                            
-                            if not route_info:
-                                continue
-                        else:
+                        # Rota bilgisi - birden fazla selector dene
+                        route_text = None
+                        route_selectors = ['h3', 'h2', '.title', '.route', '[class*="title"]', 'a']
+                        
+                        for selector in route_selectors:
+                            route_elem = await card.query_selector(selector)
+                            if route_elem:
+                                route_text = await route_elem.text_content()
+                                if route_text and len(route_text.strip()) > 5:
+                                    break
+                        
+                        if not route_text:
+                            logger.debug(f"Card {idx}: No route text found")
                             continue
                         
-                        # Fiyat bilgisi
-                        price_elem = await card.query_selector('.price, [class*="price"]')
-                        if price_elem:
-                            price_text = await price_elem.text_content()
+                        route_info = self._parse_route_from_text(route_text)
+                        if not route_info:
+                            logger.debug(f"Card {idx}: Could not parse route from '{route_text}'")
+                            continue
+                        
+                        # Fiyat bilgisi - geniş arama
+                        price = None
+                        
+                        # Önce card içindeki tüm metni al
+                        card_text = await card.text_content()
+                        
+                        # Regex ile TL/TRY içeren sayıları bul
+                        price_matches = re.findall(r'(\d{1,3}(?:[.,]\d{3})*)\s*(?:TL|TRY)', card_text)
+                        
+                        if price_matches:
+                            # İlk bulunan fiyatı kullan
+                            price_text = price_matches[0]
                             price = self._parse_price(price_text)
-                            
-                            if not price or price < 100 or price > 500000:
-                                continue
-                        else:
+                        
+                        if not price:
+                            # Alternatif: price class'ına bak
+                            price_selectors = ['.price', '[class*="price"]', 'span', 'strong']
+                            for selector in price_selectors:
+                                price_elem = await card.query_selector(selector)
+                                if price_elem:
+                                    price_text = await price_elem.text_content()
+                                    price = self._parse_price(price_text)
+                                    if price and price > 100:
+                                        break
+                        
+                        if not price or price < 100 or price > 500000:
+                            logger.debug(f"Card {idx}: Invalid price: {price}")
                             continue
                         
                         # Tarih bilgisi (varsa)
-                        date_elem = await card.query_selector('.date, [class*="date"]')
-                        date_info = await date_elem.text_content() if date_elem else "N/A"
+                        date_info = "N/A"
+                        date_selectors = ['.date', '[class*="date"]', 'time', 'span']
+                        for selector in date_selectors:
+                            date_elem = await card.query_selector(selector)
+                            if date_elem:
+                                date_text = await date_elem.text_content()
+                                if date_text and len(date_text.strip()) > 3:
+                                    date_info = date_text.strip()
+                                    break
                         
                         deal = {
                             **route_info,
                             "price": price,
-                            "date_info": date_info.strip(),
+                            "date_info": date_info,
                             "source": "ucuzaucak.net",
                             "page": page_num
                         }
                         
                         deals.append(deal)
+                        logger.debug(f"✅ Card {idx}: {route_info['route_key']} @ {price:,.0f} TL")
                         
                     except Exception as e:
-                        logger.debug(f"Card parse error: {e}")
+                        logger.debug(f"Card {idx} parse error: {e}")
                         continue
                 
                 await browser.close()
