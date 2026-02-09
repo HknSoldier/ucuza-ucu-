@@ -2,7 +2,25 @@
 
 **Otonom, akıllı ve profesyonel uçuş istihbarat sistemi.**
 
-## ✨ Yeni Özellikler (V2.3)
+## ⭐ V2.3 Yenilikler
+
+### 🔇 SESSİZ BAŞLANGIÇ (Silent Startup)
+- ✅ Bot başlatıldığında admin'e mesaj GÖNDERMİYOR
+- ✅ Sadece deal bulunduğunda bildirim
+- ✅ GitHub Actions spam'i ortadan kalktı!
+
+### 📊 Geçmiş Fiyat Karşılaştırması (ucuzaucak.net)
+- ✅ **90+ sayfa geçmiş fiyat verisi** toplama
+- ✅ Mevcut fiyatı geçmiş ile karşılaştırma
+- ✅ **Percentile hesaplama** (En ucuz %10'luk dilimde mi?)
+- ✅ Akıllı öneri sistemi (HEMEN AL / BEKLE / ALMA)
+
+### 🛡️ Gelişmiş Hata Toleransı
+- ✅ Scraping timeout'larında alternatif selector'lar
+- ✅ Daha sağlam error handling
+- ✅ Otomatik retry mekanizması
+
+## ✨ Tüm Özellikler (V2.3)
 
 ### 🕒 Ghost Protocol
 - **Aktif Saatler:** Hafta içi 09:00-20:00, Hafta sonu 11:00-23:00
@@ -80,7 +98,11 @@ playwright install chromium
 #### 3️⃣ Test Et
 
 ```bash
+# Telegram testi
 python test_telegram.py
+
+# ucuzaucak.net scraper testi (YENİ!)
+python test_ucuzaucak.py
 ```
 
 Telegram'ınızı kontrol edin - test mesajı geldi mi? ✅
@@ -113,14 +135,16 @@ await titan.run_forever()  # Bunu aç
 ```
 PROJECT-TITAN-V2/
 ├── config.py               # Ana yapılandırma (tokenler burada!)
-├── main.py                 # Orkestratör
+├── main.py                 # Orkestratör (SESSİZ BAŞLANGIÇ!)
 ├── scraper_engine.py       # Gelişmiş scraping motoru
 ├── intel_center.py         # RSS + rota üreteci + hub arbitraj
 ├── notifier.py             # Telegram (Ghost Protocol + Anti-Spam)
 ├── price_analyzer.py       # 🆕 Dip fiyat + elastikiyet analizi
 ├── visa_checker.py         # 🆕 Yeşil pasaport vize kontrolü
+├── ucuzaucak_scraper.py    # 🆕 Geçmiş fiyat verisi toplama (ucuzaucak.net)
 ├── requirements.txt        # Python bağımlılıkları
-├── test_telegram.py        # Test scripti
+├── test_telegram.py        # Telegram test scripti
+├── test_ucuzaucak.py       # 🆕 ucuzaucak.net test scripti
 ├── sniper.yml              # GitHub Actions workflow
 └── README.md
 ```
@@ -151,6 +175,10 @@ PROJECT-TITAN-V2/
 - ✅ Vize kontrolü (Yeşil Pasaport)
 - ✅ Gerçek maliyet (bagaj + ulaşım)
 - ✅ Fiyat elastikiyeti ("6 saat dayanır")
+- ✅ **Geçmiş fiyat karşılaştırması (ucuzaucak.net)** 🆕
+  - 90+ sayfa geçmiş veri
+  - Percentile hesaplama (En ucuz %10'da mı?)
+  - Akıllı öneri (HEMEN AL / BEKLE / ALMA)
 
 ### 5️⃣ Akıllı Bildirim
 - **Ghost Protocol:** Sadece aktif saatlerde bildir (Mistake fare bypass)
@@ -185,6 +213,9 @@ Sofia (SOF) üzerinden ABD'ye uçmak çok daha ucuz!
 📊 Analiz:
 • 90 Günlük Ortalama: 15,000 TL | Dip Eşik: 10,500 TL
 • Tasarruf: %36.7
+• 📊 Geçmiş Karşılaştırma: En ucuz %8'lik dilimde
+   (Geçmiş Min: 9,200 TL | Ort: 14,800 TL)
+• 🔥 MÜKEMMEL FİYAT - Geçmişte en ucuz %10'luk dilimde!
 • ✅ Vize Durumu: VİZE GEREKLİ (B1/B2)
 
 🔗 [✈️ UÇUŞ LİNKİ] | [🏨 OTEL LİNKİ]
