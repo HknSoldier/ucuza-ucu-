@@ -17,6 +17,7 @@ from intel_center import IntelCenter
 from notifier import TelegramNotifier
 from price_analyzer import PriceAnalyzer
 from visa_checker import VisaChecker
+from ucuzaucak_scraper import UcuzaucakScraper
 
 # Logging yapılandırması
 logging.basicConfig(
@@ -53,10 +54,14 @@ class ProjectTitanV2:
             max_sane_price=self.config.MAX_SANE_PRICE
         )
         self.visa_checker = VisaChecker()
+        self.ucuzaucak = UcuzaucakScraper(self.config)
         
         # State management
         self.state_file = Path(self.config.STATE_FILE)
         self.state = self._load_state()
+        
+        # Historical price cache
+        self.historical_data = None  # Geçmiş fiyat verileri
         
         # Performance tracking
         self.stats = {
@@ -149,6 +154,40 @@ class ProjectTitanV2:
         history = self.state["price_history"].get(route_key, [])
         return [h["price"] for h in history]
     
+    async def load_historical_data(self, max_pages: int = 3):
+        """
+        ucuzaucak.net'ten geçmiş fiyat verilerini yükle
+        
+        Args:
+            max_pages: Maksimum kaç sayfa taranacak (default: 3, çok fazla spam yapmamak için)
+        """
+        try:
+            logger.info(f"📊 Loading historical data from ucuzaucak.net (max {max_pages} pages)...")
+            
+            # Geçmiş verileri çek
+            deals = await self.ucuzaucak.scrape_multiple_pages(max_pages=max_pages)
+            
+            if not deals:
+                logger.warning("⚠️ No historical data found from ucuzaucak.net")
+                return
+            
+            # Rotaya göre grupla
+            self.historical_data = self.ucuzaucak.aggregate_by_route(deals)
+            
+            logger.info(f"✅ Historical data loaded: {len(self.historical_data)} unique routes")
+            
+            # İstatistik logla
+            for route_key, stats in list(self.historical_data.items())[:5]:
+                logger.info(
+                    f"   {route_key}: Min={stats['min']:.0f} TL, "
+                    f"Avg={stats['avg']:.0f} TL, Max={stats['max']:.0f} TL "
+                    f"({stats['count']} samples)"
+                )
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load historical data: {e}")
+            self.historical_data = None
+    
     async def analyze_deal(self, route: Dict, scrape_result: Dict) -> Dict:
         """
         Komple deal analizi:
@@ -202,6 +241,22 @@ class ProjectTitanV2:
         history_with_dates = self.state["price_history"].get(route_key, [])
         elasticity = self.price_analyzer.estimate_price_elasticity(history_with_dates)
         
+        # 7. Geçmiş fiyat karşılaştırması (ucuzaucak.net)
+        historical_comparison = None
+        if self.historical_data:
+            historical_comparison = self.ucuzaucak.compare_with_historical(
+                current_price,
+                route_key,
+                self.historical_data
+            )
+            
+            if historical_comparison:
+                logger.info(
+                    f"📊 Historical comparison for {route_key}: "
+                    f"Percentile: {historical_comparison.get('percentile', 0):.0f}%, "
+                    f"{historical_comparison.get('recommendation', 'N/A')}"
+                )
+        
         # Fiyat geçmişini güncelle
         self._update_price_history(route_key, current_price)
         
@@ -214,6 +269,7 @@ class ProjectTitanV2:
             'visa_info': visa_info,
             'real_cost': real_cost,
             'elasticity': elasticity,
+            'historical_comparison': historical_comparison,  # Yeni!
             'is_green_zone': price_category.get('category') == 'bottom',
             'confidence': scrape_result.get('confidence', 0.0)
         }
@@ -298,8 +354,13 @@ class ProjectTitanV2:
             logger.info("🦅 PROJECT TITAN V2.3 - Intelligence Cycle Starting")
             logger.info("=" * 60)
             
-            # Startup mesajı
-            await self.notifier.send_startup_message()
+            # ❌ SESSİZ BAŞLANGIÇ: Startup mesajı KALDIRILDI
+            # GitHub Actions her 4 saatte çalışır, spam yaratmamak için sessiz başlangıç
+            # await self.notifier.send_startup_message()  # DEVRE DIŞI
+            
+            # 0. Geçmiş fiyat verilerini yükle (ilk cycle'da)
+            if self.historical_data is None:
+                await self.load_historical_data(max_pages=3)
             
             # 1. Stratejik rotalar al
             routes = await self.intel.get_strategic_routes(max_routes=30)
