@@ -3,10 +3,10 @@ name: PROJECT TITAN V2.3 - Flight Sniper
 on:
   schedule:
     - cron: '0 */4 * * *'  # Her 4 saatte bir
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+  workflow_dispatch:  # Manuel çalıştırma için
+  # push:  # DEVRE DIŞI - Her commit'te çalışmasın (Actions limiti koruma)
+  #   branches:
+  #     - main
 
 jobs:
   hunt:
@@ -62,4 +62,3 @@ jobs:
           echo "Last 20 lines:"
           tail -n 20 titan.log
         fi
-        
