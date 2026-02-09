@@ -157,3 +157,4 @@ class TitanConfig:
         "end_day": 3,    # Perşembe
         "end_hour": 10
     }
+    
