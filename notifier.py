@@ -220,8 +220,23 @@ class TelegramNotifier:
         analysis_content = (
             f"• 90 Günlük Ortalama: {avg_price:,.0f} TL | Dip Eşik: {bottom_threshold:,.0f} TL\n"
             f"• Tasarruf: %{savings:.1f}\n"
-            f"• {visa_info}\n\n"
         )
+        
+        # Geçmiş fiyat karşılaştırması (ucuzaucak.net)
+        hist_comp = analysis.get('historical_comparison')
+        if hist_comp and hist_comp.get('percentile') is not None:
+            percentile = hist_comp.get('percentile', 0)
+            recommendation = hist_comp.get('recommendation', '')
+            hist_min = hist_comp.get('hist_min', 0)
+            hist_avg = hist_comp.get('hist_avg', 0)
+            
+            analysis_content += (
+                f"• 📊 Geçmiş Karşılaştırma: En ucuz %{percentile:.0f}'lik dilimde\n"
+                f"   (Geçmiş Min: {hist_min:,.0f} TL | Ort: {hist_avg:,.0f} TL)\n"
+                f"• {recommendation}\n"
+            )
+        
+        analysis_content += f"• {visa_info}\n\n"
         
         # Linkler
         flights_url = (
