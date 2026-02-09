@@ -35,7 +35,7 @@ class IntelCenter:
         for feed_url in self.rss_feeds:
             try:
                 logger.info(f"📡 RSS parsing: {feed_url}")
-                feed = feedparser.parse(feed_url, timeout=10)
+                feed = feedparser.parse(feed_url)
                 
                 for entry in feed.entries[:15]:  # Top 15
                     title = entry.get('title', '').upper()
