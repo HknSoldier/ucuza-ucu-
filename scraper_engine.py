@@ -123,7 +123,17 @@ class ScraperEngine:
                 await self._handle_cookie_consent(page)
                 
                 # Sonuçların yüklenmesini bekle
-                await page.wait_for_selector('div[role="main"]', timeout=20000)
+                try:
+                    await page.wait_for_selector('div[role="main"]', timeout=30000)
+                except Exception as timeout_err:
+                    logger.warning(f"⚠️ Main container timeout, trying alternative selectors...")
+                    # Alternatif selector'lar dene
+                    try:
+                        await page.wait_for_selector('.gws-flights-results__result-item', timeout=15000)
+                    except:
+                        # Son şans: body'nin yüklenmesini bekle
+                        await page.wait_for_selector('body', timeout=10000)
+                        logger.warning("Using body as fallback selector")
                 
                 # Scroll ile daha fazla içerik yükle
                 await page.mouse.wheel(0, 800)
