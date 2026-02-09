@@ -62,3 +62,4 @@ jobs:
           echo "Last 20 lines:"
           tail -n 20 titan.log
         fi
+        
