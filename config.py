@@ -9,26 +9,31 @@ class TitanConfig:
     """Enterprise-grade configuration with Ghost Protocol & Anti-Spam"""
     
     # ==================== TELEGRAM CREDENTIALS ====================
-    # Hardcoded bot credentials (from user's message)
+    # Hardcoded bot credentials
     TELEGRAM_BOT_TOKEN = "8161806410:AAH4tGpW_kCvQpLOfaB-r2OYQMypPVYtuYg"
     TELEGRAM_ADMIN_ID = 7684228928
     TELEGRAM_GROUP_ID = -1003515302846
     
     # ==================== GHOST PROTOCOL (ZAMAN KURALLARI) ====================
-    # Aktif mesajlaşma saatleri
-    ACTIVE_HOURS_WEEKDAY = (time(9, 0), time(20, 0))  # 09:00 - 20:00
+    # ⚠️ GÜNCELLEME: Sabah fırsatlarını kaçırmamak için 07:00'ye çekildi
+    ACTIVE_HOURS_WEEKDAY = (time(7, 0), time(23, 0))   # 07:00 - 23:00
     ACTIVE_HOURS_WEEKEND = (time(11, 0), time(23, 0))  # 11:00 - 23:00
     
-    # BYPASS: Mistake fare için zaman kuralını yok say
-    MISTAKE_FARE_THRESHOLD = 0.30  # %70 düşüş = 0.30 multiplier
+    # BYPASS: Mistake fare (%70 indirim) için zaman kuralını yok say
+    MISTAKE_FARE_THRESHOLD = 0.30 
+    
+    # ==================== SAMPLING & PERFORMANCE (TIMEOUT FIX) ====================
+    # ⚠️ GÜNCELLEME: GitHub Actions timeout yememek için düşürüldü
+    ROUTES_TO_SCAN = 15   # Her döngüde taranacak rota sayısı (Eski: 30)
+    DATES_PER_ROUTE = 4   # Her rota için denenecek tarih sayısı (Eski: 5)
     
     # ==================== ALARM FILTER (GERÇEK FIRSATLAR) ====================
-    # Sadece gerçek dip fiyatlarda alarm
-    ALARM_PRICE_MULTIPLIER = 1.05  # 90 günlük en düşük × 1.05
+    # Sadece gerçek dip fiyatlarda alarm (90 günlük en düşük x 1.05)
+    ALARM_PRICE_MULTIPLIER = 1.05 
     
     # ==================== ANTI-SPAM SINIRLAMALARI ====================
     MAX_ALERTS_PER_ROUTE_PER_DAY = 1  # Aynı rota için max 1 alarm/24h
-    MAX_TOTAL_ALERTS_PER_DAY = 3  # Toplam max 3 alarm/gün
+    MAX_TOTAL_ALERTS_PER_DAY = 3      # Toplam max 3 alarm/gün
     
     # ==================== DİP AVCISI ESIKLERI ====================
     PRICE_BOTTOM_MULTIPLIER = 1.05  # Dip fiyat = En düşük × 1.05
@@ -38,7 +43,7 @@ class TitanConfig:
     # Ana kalkış noktaları (Türkiye + Sofia hub)
     ORIGINS = ["IST", "SAW", "ADB", "ESB", "AYT", "TZX", "SOF"]
     
-    # Hedef destinasyonlar (bölge bazlı)
+    # Hedef destinasyonlar
     DESTINATIONS = {
         "USA": ["JFK", "LAX", "ORD", "MIA", "BOS", "SFO", "SEA", "ATL", "IAD"],
         "Europe": ["LHR", "CDG", "AMS", "FCO", "BCN", "BER", "MAD", "VIE", "ZRH"],
@@ -64,17 +69,15 @@ class TitanConfig:
     MAX_RETRIES = 3
     RANDOM_SLEEP_MIN = 2  # saniye
     RANDOM_SLEEP_MAX = 7  # saniye
-    
-    # Rate limiting (TOS uyumlu)
     MAX_REQUESTS_PER_10_SEC = 3
     
     # ==================== PROXY AYARLARI ====================
     USE_PROXY = True
-    MIN_IP_REPUTATION_SCORE = 0.4  # IP kalite skoru minimum
+    MIN_IP_REPUTATION_SCORE = 0.4 
     
     # ==================== TARİH ARALIĞI ====================
-    DATE_RANGE_MIN = 90   # 3 ay
-    DATE_RANGE_MAX = 330  # 11 ay
+    DATE_RANGE_MIN = 90    # 3 ay sonrası
+    DATE_RANGE_MAX = 330   # 11 ay sonrası
     TRIP_LENGTH_MIN = 3
     TRIP_LENGTH_MAX = 14
     
@@ -97,24 +100,19 @@ class TitanConfig:
         "default": {"default": 30000}
     }
     
-    # ==================== BAGAJ MALİYETLERİ ====================
+    # ==================== EKSTRA MALİYETLER ====================
     BAGGAGE_COSTS = {
         "Pegasus": {"cabin": 150, "checked": 400},
         "AnadoluJet": {"cabin": 120, "checked": 350},
-        "Turkish Airlines": {"cabin": 0, "checked": 0},  # Included
+        "Turkish Airlines": {"cabin": 0, "checked": 0},
         "default": {"cabin": 100, "checked": 300}
     }
     
-    # ==================== UZAK HAVAALANLARı ULAŞIM MALİYETİ ====================
     REMOTE_AIRPORT_TRANSPORT = {
-        "BVA": 25,  # Paris Beauvais -> Paris center (~25 EUR)
-        "HHN": 20,  # Frankfurt Hahn -> Frankfurt (~20 EUR)
-        "NYO": 15,  # Stockholm Skavsta -> Stockholm (~15 EUR)
-        "CIA": 10   # Rome Ciampino -> Rome center (~10 EUR)
+        "BVA": 25, "HHN": 20, "NYO": 15, "CIA": 10
     }
     
-    # ==================== AKTARMA RİSK SINIRLAMALARI ====================
-    MIN_SAFE_TRANSFER_TIME = 4  # saat (farklı havayolu aktarmaları için)
+    MIN_SAFE_TRANSFER_TIME = 4  # saat
     
     # ==================== RSS FEEDLER ====================
     RSS_FEEDS = [
@@ -124,17 +122,13 @@ class TitanConfig:
         "https://www.goingtotheworld.com/feed/"
     ]
     
-    # ==================== DURUM YÖNETİMİ ====================
+    # ==================== DURUM & ANOMALİ ====================
     STATE_FILE = "titan_state.json"
-    PRICE_HISTORY_SIZE = 90  # 90 günlük fiyat geçmişi
-    
-    # ==================== ANOMALİ ALGILAMA ====================
-    MIN_SANE_PRICE = 100      # 100 TL altı = hatalı
-    MAX_SANE_PRICE = 500000   # 500K TL üstü = hatalı
-    MIN_PRICE_VARIANCE = 2    # En az 2 kaynaktan doğrulama gerekli
-    
-    # ==================== SELF-HEALING ESIKLERI ====================
-    MAX_FAILURE_RATE = 0.30  # %30 başarısızlık oranı = sistem durdur
+    PRICE_HISTORY_SIZE = 90
+    MIN_SANE_PRICE = 100
+    MAX_SANE_PRICE = 500000
+    MIN_PRICE_VARIANCE = 2
+    MAX_FAILURE_RATE = 0.30
     
     # ==================== USER AGENTS ====================
     USER_AGENTS = [
@@ -144,17 +138,13 @@ class TitanConfig:
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     ]
     
-    # ==================== MİL ARBITRAJ ====================
+    # ==================== MİL ARBITRAJ & OPTİMAL ZAMAN ====================
     MILE_PURCHASE_RATE = {
-        "TurkishAirlines": 0.02,  # 1 mil = 0.02 TL (örnek)
+        "TurkishAirlines": 0.02,
         "default": 0.025
     }
     
-    # ==================== OPTİMAL SATIN ALMA SAATLERİ ====================
     OPTIMAL_PURCHASE_WINDOW = {
-        "start_day": 1,  # Salı (0=Pazartesi)
-        "start_hour": 15,
-        "end_day": 3,    # Perşembe
-        "end_hour": 10
+        "start_day": 1, "start_hour": 15,  # Salı 15:00
+        "end_day": 3, "end_hour": 10       # Perşembe 10:00
     }
-    
