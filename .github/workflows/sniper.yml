@@ -11,7 +11,7 @@ on:
 jobs:
   hunt:
     runs-on: ubuntu-latest
-    timeout-minutes: 45  # Daha uzun timeout (gelişmiş özellikler için)
+    timeout-minutes: 360  # Daha uzun timeout (gelişmiş özellikler için)
     
     steps:
     - name: 📥 Checkout code
