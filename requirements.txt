@@ -1,5 +1,5 @@
-# PROJECT TITAN V2.3 - Requirements
-# Enterprise-grade Flight Intelligence System
+# PROJECT TITAN V2.5 - PROFESSIONAL FLIGHT HACKER
+# Python Dependencies
 
 # HTTP & Async
 aiohttp>=3.9.0,<4.0.0
@@ -16,5 +16,9 @@ python-dateutil>=2.8.0,<3.0.0
 # Environment Variables (optional for local testing)
 python-dotenv>=1.0.0,<2.0.0
 
-# Statistics (built-in, no install needed)
-# JSON (built-in, no install needed)
+# Statistics & JSON (built-in, no install needed)
+# - statistics
+# - json
+# - datetime
+# - random
+# - asyncio
