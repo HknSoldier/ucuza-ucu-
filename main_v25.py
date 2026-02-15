@@ -18,9 +18,8 @@ try:
     from scraper_engine_v25 import ProfessionalFlightScraper
     from intel_center_v25 import FlightHackerIntelCenter
 except ImportError as e:
-    print(f"KRİTİK HATA: V2.5 modülleri bulunamadı! ({e})")
-    print("Lütfen config_v25.py, scraper_engine_v25.py ve intel_center_v25.py dosyalarının repoda olduğundan emin olun.")
-    # Kodun çökmemesi için geçici dummy sınıflar (Sadece dosya kontrolü aşaması için)
+    print(f"UYARI: V2.5 modülleri tam yüklenemedi! ({e})")
+    # Kodun çökmemesi için geçici Config sınıfı
     class TitanConfig:
         STATE_FILE = "titan_state_v25.json"
         SCAN_HOURS = (dt_time(2, 0), dt_time(5, 0))
@@ -45,7 +44,7 @@ try:
     from price_analyzer import PriceAnalyzer
     from visa_checker import VisaChecker
 except ImportError:
-    # Eğer modüller yoksa dummy (boş) sınıflar oluştur ki kod hata vermesin
+    # Eğer modüller yoksa dummy (boş) sınıflar oluştur
     class TelegramNotifier:
         def __init__(self, config): pass
         async def send_deals_report(self, deals): return 0
@@ -76,13 +75,18 @@ class ProjectTitanV25:
     def __init__(self):
         self.config = TitanConfig()
         
-        # Eğer modüller yüklendiyse başlat, yoksa hata verme
+        # Eğer modüller yüklendiyse başlat
         try:
-            self.scraper = ProfessionalFlightScraper(self.config)
-            self.intel = FlightHackerIntelCenter(self.config)
-        except NameError:
-            logger.error("V2.5 Modülleri eksik, bot başlatılamıyor.")
-            return
+            # Scraper ve Intel modüllerini sadece import başarılıysa kullan
+            if 'ProfessionalFlightScraper' in globals():
+                self.scraper = ProfessionalFlightScraper(self.config)
+                self.intel = FlightHackerIntelCenter(self.config)
+            else:
+                logger.warning("Scraper modülü bulunamadı, dummy modda çalışıyor.")
+                self.scraper = None
+        except Exception as e:
+            logger.error(f"Modül başlatma hatası: {e}")
+            self.scraper = None
 
         self.notifier = TelegramNotifier(self.config)
         self.price_analyzer = PriceAnalyzer(
@@ -94,8 +98,6 @@ class ProjectTitanV25:
         # Durum Dosyası (State)
         self.state_file = Path(self.config.STATE_FILE)
         self.state = self._load_state()
-        
-        # Gece taraması için kuyruk
         self.alert_queue = []
         
         # İstatistikler
@@ -132,44 +134,32 @@ class ProjectTitanV25:
         except Exception as e:
             logger.error(f"State save failed: {e}")
     
-    def _is_scan_time(self) -> bool:
-        # Şimdilik her zaman True döndür ki test ederken çalışsın
-        return True 
-        # Gerçek modda şunu kullan:
-        # now = datetime.now().time()
-        # return self.config.SCAN_HOURS[0] <= now <= self.config.SCAN_HOURS[1]
-    
-    def _is_alert_time(self) -> bool:
-        return True # Test için her zaman açık
-
-    def _queue_alert(self, deal: Dict):
-        self.alert_queue.append(deal)
-        logger.info(f"📮 Alert queued (total: {len(self.alert_queue)})")
-    
-    async def _send_queued_alerts(self):
-        if not self.alert_queue: return
-        logger.info(f"📢 Sending {len(self.alert_queue)} queued alerts...")
-        sent = await self.notifier.send_deals_report(self.alert_queue)
-        self.stats['total_alerts'] = sent
-        self.alert_queue = []
-
     async def scan_route(self, route: Dict) -> Optional[Dict]:
-        try:
-            start_time = datetime.now()
+        if not self.scraper:
+            logger.error("Scraper modülü eksik, tarama yapılamıyor.")
+            return None
             
-            # Tarihleri Intel Center'dan al
-            dates = self.intel._generate_sweet_spot_dates(count=self.config.DATES_PER_ROUTE)
+        try:
+            # Tarihleri Intel Center'dan al veya default kullan
+            dates = []
+            if hasattr(self, 'intel') and self.intel:
+                dates = self.intel._generate_sweet_spot_dates(count=self.config.DATES_PER_ROUTE)
+            else:
+                # Fallback tarihler
+                d1 = datetime.now() + timedelta(days=30)
+                d2 = d1 + timedelta(days=7)
+                dates = [(d1.strftime('%Y-%m-%d'), d2.strftime('%Y-%m-%d'))]
             
             best_deal = None
             best_price = float('inf')
             
             for dep_date, ret_date in dates:
-                logger.info(f"🔍 Scanning: {route['origin']} → {route['destination']} ({dep_date}-{ret_date})")
+                logger.info(f"🔍 Scanning: {route.get('origin', 'IST')} → {route.get('destination', 'ESB')} ({dep_date}-{ret_date})")
                 
                 # Scraper çağrısı
                 result = await self.scraper.scrape_flight(
-                    origin=route['origin'],
-                    destination=route['destination'],
+                    origin=route.get('origin', 'IST'),
+                    destination=route.get('destination', 'ESB'),
                     departure_date=dep_date,
                     return_date=ret_date
                 )
@@ -181,7 +171,7 @@ class ProjectTitanV25:
                         best_deal = {**route, **result, 'departure_date': dep_date, 'return_date': ret_date}
                         logger.info(f"💎 New best: {price:,.0f} TL")
                 
-                await asyncio.sleep(1) # Hızlı tarama için kısa bekleme
+                await asyncio.sleep(1) 
             
             if best_deal:
                 self.stats['successful_scans'] += 1
@@ -199,7 +189,13 @@ class ProjectTitanV25:
         logger.info("🦅 PROJECT TITAN V2.5 BAŞLATILIYOR...")
         
         # Rotaları al
-        routes = await self.intel.get_strategic_routes(max_routes=self.config.ROUTES_TO_SCAN)
+        routes = []
+        if hasattr(self, 'intel') and self.intel:
+            routes = await self.intel.get_strategic_routes(max_routes=self.config.ROUTES_TO_SCAN)
+        else:
+            # Fallback rota
+            routes = [{'origin': 'IST', 'destination': 'ADB', 'route_type': 'round_trip'}]
+            
         self.stats['total_routes'] = len(routes)
         
         deals_found = []
@@ -208,7 +204,6 @@ class ProjectTitanV25:
             deal = await self.scan_route(route)
             if deal:
                 deals_found.append(deal)
-                logger.info(f"🔥 FIRSAT: {deal['origin']}-{deal['destination']} = {deal['price']} TL")
         
         if deals_found:
             await self.notifier.send_deals_report(deals_found)
@@ -219,10 +214,7 @@ class ProjectTitanV25:
 async def main():
     try:
         titan = ProjectTitanV25()
-        if hasattr(titan, 'scraper'): # Başarılı başlatıldıysa
-            await titan.run_intelligence_cycle()
-        else:
-            logger.error("Bot başlatılamadı, eksik dosyaları kontrol edin.")
+        await titan.run_intelligence_cycle()
     except Exception as e:
         logger.error(f"Fatal error: {e}")
         traceback.print_exc()
