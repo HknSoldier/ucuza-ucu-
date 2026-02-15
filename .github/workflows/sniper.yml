@@ -1,64 +1,85 @@
-name: PROJECT TITAN V2.3 - Flight Sniper
+name: TITAN V2.5 - Professional Flight Hacker
 
 on:
   schedule:
-    - cron: '0 */4 * * *'  # Her 4 saatte bir
-  workflow_dispatch:  # Manuel çalıştırma için
-  # push:  # DEVRE DIŞI - Her commit'te çalışmasın (Actions limiti koruma)
-  #   branches:
-  #     - main
+    # Her gün Türkiye saati 02:00 (UTC 23:00 - önceki gün)
+    - cron: '0 23 * * *'
+    
+    # VEYA sadece Salı-Çarşamba (price update günleri)
+    # - cron: '0 23 * * 1,2'  # Monday=1, Tuesday=2 (UTC)
+  
+  workflow_dispatch:  # Manuel çalıştırma
 
 jobs:
-  hunt:
+  hunt-flights:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # Daha uzun timeout (gelişmiş özellikler için)
+    timeout-minutes: 120  # 2 saat timeout
     
     steps:
-    - name: 📥 Checkout code
+    - name: 📥 Checkout Repository
       uses: actions/checkout@v4
     
-    - name: 🐍 Set up Python
+    - name: 🐍 Setup Python 3.11
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         cache: 'pip'
     
-    - name: 📦 Install dependencies
+    - name: 📦 Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: 🎭 Install Playwright browsers
+    - name: 🎭 Install Playwright Chromium
       run: |
         playwright install chromium
         playwright install-deps chromium
     
-    - name: 🦅 Run PROJECT TITAN V2.3
+    - name: ✅ Verify Installation
       run: |
-        python main.py
+        echo "Python version:"
+        python --version
+        echo ""
+        echo "Playwright version:"
+        playwright --version
+        echo ""
+        echo "Installed packages:"
+        pip list | grep -E "playwright|aiohttp|feedparser"
+    
+    - name: 🦅 Run PROJECT TITAN V2.5
+      run: |
+        python main_v25.py
       env:
         PYTHONUNBUFFERED: 1
     
-    - name: 📊 Upload logs & artifacts
+    - name: 📊 Upload Logs & State
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: titan-logs-${{ github.run_number }}
+        name: titan-v25-logs-${{ github.run_number }}
         path: |
-          titan.log
+          titan_v25.log
           titan_state.json
           notification_state.json
           debug_*.png
         retention-days: 7
         if-no-files-found: warn
     
-    - name: 📈 Display Stats
+    - name: 📈 Display Performance Stats
       if: always()
       run: |
-        echo "=== TITAN Performance Stats ==="
-        if [ -f titan.log ]; then
-          echo "Log file size: $(wc -l titan.log | awk '{print $1}') lines"
+        echo "====== TITAN V2.5 PERFORMANCE STATS ======"
+        if [ -f titan_v25.log ]; then
           echo ""
-          echo "Last 20 lines:"
-          tail -n 20 titan.log
+          echo "📊 Key Metrics:"
+          grep -E "Total Routes|Successful|Ultra Deals|Mistake Fares|Queued Alerts" titan_v25.log | tail -10
+          echo ""
+          echo "📅 Sweet Spot Window:"
+          grep -E "SWEET SPOT WINDOW" titan_v25.log | tail -3
+          echo ""
+          echo "Last 15 log lines:"
+          tail -n 15 titan_v25.log
+        else
+          echo "⚠️ Log file not found"
         fi
+        echo "========================================="
