@@ -15,10 +15,32 @@ Gerçek havacılık industry uzmanlarının kullandığı tüm taktikler artık 
 ```python
 DATE_RANGE_MIN = 42  # 6 hafta
 DATE_RANGE_MAX = 56  # 8 hafta
+ENFORCE_SWEET_SPOT = True  # SADECE bu aralık taranır!
 ```
+
+**Ne Demek?**
+✅ Sistem **SADECE** 6-8 hafta sonraki uçuşları tarar  
+✅ Bugünden 42-56 gün sonraki tarihler  
+✅ Bu aralığın DIŞINDA tarama yapılmaz!  
+
+**Örnek:**
+```
+Bugün: 15 Şubat 2026
+Sweet Spot: 28 Mart - 11 Nisan 2026
+Taranacak: ✅ 1 Nisan (6 hafta sonra)
+Taranacak: ✅ 8 Nisan (7 hafta sonra)
+Taranmayacak: ❌ 20 Şubat (5 gün sonra - çok erken)
+Taranmayacak: ❌ 20 Haziran (4 ay sonra - çok geç)
+```
+
+**Neden?**
+- Çok erken (1-5 hafta): Havayolları fiyat yüksek tutar
+- **SWEET SPOT (6-8 hafta): FİYATLAR EN DÜŞÜK!** 💰
+- Çok geç (9+ hafta): Fiyatlar tekrar yükselir
+
 ✅ Havayolları bu pencerede fiyat optimize eder  
-✅ Çok erken = pahalı, çok geç = pahalı  
-✅ 6-8 hafta = **SWEET SPOT** 🎯
+✅ Demand forecasting en doğru bu aralıkta  
+✅ **İstatistiksel olarak en ucuz dönem!** 📊
 
 #### 2. 📊 Price Update Days
 **"Salı-Çarşamba sistem fiyat güncellemesi!"**
