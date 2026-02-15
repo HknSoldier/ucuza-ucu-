@@ -1,101 +1,111 @@
-# main.py - PROJECT TITAN V2.3 Main Orchestrator
-# 🦅 Event-driven Architecture + Self-healing + Advanced Analytics
+# main_v25.py - PROJECT TITAN V2.5 PROFESSIONAL FLIGHT HACKER
+# 🎯 Industry secrets + Night scanning + One-way combos
 
 import asyncio
 import logging
 import json
 import random
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time
 from pathlib import Path
 from typing import Dict, List, Optional
+import sys
 
-# Import modüller
-from config import TitanConfig
-from scraper_engine import ScraperEngine
-from intel_center import IntelCenter
+# V2.5 modules
+from config_v25 import TitanConfig
+from scraper_engine_v25 import ProfessionalFlightScraper
+from intel_center_v25 import FlightHackerIntelCenter
+
+# V2.3 modules (still compatible)
+sys.path.append('/mnt/user-data/uploads')
 from notifier import TelegramNotifier
 from price_analyzer import PriceAnalyzer
 from visa_checker import VisaChecker
-from ucuzaucak_scraper import UcuzaucakScraper
 
-# Logging yapılandırması
+# Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('titan.log', encoding='utf-8'),
+        logging.FileHandler('titan_v25.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-class ProjectTitanV2:
+class ProjectTitanV25:
     """
-    PROJECT TITAN V2.3 - Enterprise Flight Intelligence System
+    PROJECT TITAN V2.5 - PROFESSIONAL FLIGHT HACKER
     
     Features:
-    - Event-driven architecture
-    - Ghost Protocol (time-based alerting)
-    - Anti-spam protection
-    - Self-healing (auto IP rotation)
-    - Advanced price analytics
-    - Hub arbitrage
-    - Visa checking (Green Passport)
+    - Sweet spot booking (6-8 weeks)
+    - Night scanning (02:00-05:00)
+    - Morning alerts (09:00+)
+    - One-way combinations
+    - Alternative airports
+    - Baggage cost included
+    - Day-of-week pricing
     """
     
     def __init__(self):
         self.config = TitanConfig()
-        self.scraper = ScraperEngine(self.config)
-        self.intel = IntelCenter(self.config)
+        
+        # V2.5 components
+        self.scraper = ProfessionalFlightScraper(self.config)
+        self.intel = FlightHackerIntelCenter(self.config)
+        
+        # V2.3 components
         self.notifier = TelegramNotifier(self.config)
         self.price_analyzer = PriceAnalyzer(
             min_sane_price=self.config.MIN_SANE_PRICE,
             max_sane_price=self.config.MAX_SANE_PRICE
         )
         self.visa_checker = VisaChecker()
-        self.ucuzaucak = UcuzaucakScraper(self.config)
         
-        # State management
+        # State
         self.state_file = Path(self.config.STATE_FILE)
         self.state = self._load_state()
         
-        # Historical price cache
-        self.historical_data = None  # Geçmiş fiyat verileri
+        # Alert queue (for night scanning)
+        self.alert_queue = []
         
-        # Performance tracking
+        # Stats
         self.stats = {
             'total_routes': 0,
             'successful_scans': 0,
             'failed_scans': 0,
-            'bottom_deals': 0,
+            'one_way_combos_found': 0,
+            'alternative_airports_found': 0,
+            'ultra_deals': 0,
             'mistake_fares': 0,
             'total_alerts': 0,
+            'queued_alerts': 0,
             'scan_times': []
         }
     
     def _load_state(self) -> Dict:
-        """Persistent state yükle"""
+        """Load state"""
         if self.state_file.exists():
             try:
                 with open(self.state_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception as e:
-                logger.error(f"State load failed: {e}")
+            except:
                 return self._init_state()
         return self._init_state()
     
     def _init_state(self) -> Dict:
-        """Yeni state başlat"""
+        """Initialize state"""
         return {
-            "price_history": {},  # {route_key: [prices]}
+            "price_history": {},
             "last_scan": None,
             "total_scans": 0,
-            "last_alerts": {},  # {route_key: timestamp}
+            "last_alerts": {},
+            "best_deals_found": [],
+            "one_way_combos": []  # Track successful combinations
         }
     
     def _save_state(self):
-        """State kaydet"""
+        """Save state"""
         try:
             with open(self.state_file, 'w', encoding='utf-8') as f:
                 json.dump(self.state, f, indent=2, ensure_ascii=False)
@@ -103,186 +113,121 @@ class ProjectTitanV2:
         except Exception as e:
             logger.error(f"State save failed: {e}")
     
-    def _generate_smart_dates(self, count: int = 5) -> List[tuple]:
+    def _is_scan_time(self) -> bool:
         """
-        Akıllı tarih çiftleri üret (3-11 ay arası)
+        RULE 3: Check if current time is in scan window
+        Gece 02:00-05:00 tarama zamanı
         """
-        dates = []
-        base_date = datetime.now()
-        
-        for _ in range(count):
-            # 90-330 gün arası rastgele offset
-            days_offset = random.randint(
-                self.config.DATE_RANGE_MIN,
-                self.config.DATE_RANGE_MAX
-            )
-            departure = base_date + timedelta(days=days_offset)
-            
-            # 3-14 gün arası trip length
-            trip_length = random.randint(
-                self.config.TRIP_LENGTH_MIN,
-                self.config.TRIP_LENGTH_MAX
-            )
-            return_date = departure + timedelta(days=trip_length)
-            
-            dates.append((
-                departure.strftime("%Y-%m-%d"),
-                return_date.strftime("%Y-%m-%d")
-            ))
-        
-        return dates
+        now = datetime.now().time()
+        scan_start, scan_end = self.config.SCAN_HOURS
+        return scan_start <= now <= scan_end
     
-    def _update_price_history(self, route_key: str, price: float):
-        """Fiyat geçmişini güncelle"""
-        if route_key not in self.state["price_history"]:
-            self.state["price_history"][route_key] = []
-        
-        history = self.state["price_history"][route_key]
-        history.append({
-            "price": price,
-            "date": datetime.now().isoformat()
-        })
-        
-        # Son 90 günlük geçmişi tut
-        if len(history) > self.config.PRICE_HISTORY_SIZE:
-            history = history[-self.config.PRICE_HISTORY_SIZE:]
-        
-        self.state["price_history"][route_key] = history
-    
-    def _get_price_history(self, route_key: str) -> List[float]:
-        """Rota için fiyat geçmişini al"""
-        history = self.state["price_history"].get(route_key, [])
-        return [h["price"] for h in history]
-    
-    async def load_historical_data(self, max_pages: int = 3):
+    def _is_alert_time(self) -> bool:
         """
-        ucuzaucak.net'ten geçmiş fiyat verilerini yükle
+        RULE 3: Check if current time is in alert window
+        Sabah 09:00'dan sonra mesaj gönder
+        """
+        now = datetime.now().time()
+        alert_start, alert_end = self.config.ALERT_HOURS
+        return alert_start <= now <= alert_end
+    
+    def _queue_alert(self, deal: Dict):
+        """
+        RULE 3: Queue alert for morning delivery
+        Gece bulunan fırsatları sabaha ertele
+        """
+        self.alert_queue.append(deal)
+        self.stats['queued_alerts'] += 1
+        logger.info(f"📮 Alert queued for morning delivery (total: {len(self.alert_queue)})")
+    
+    async def _send_queued_alerts(self):
+        """
+        RULE 3: Send queued alerts in the morning
+        Sabah saat 09:00'dan sonra mesaj gönder
+        """
+        if not self.alert_queue:
+            return
         
-        Args:
-            max_pages: Maksimum kaç sayfa taranacak (default: 3, çok fazla spam yapmamak için)
+        if not self._is_alert_time():
+            logger.info(f"⏰ Not yet alert time. {len(self.alert_queue)} alerts queued.")
+            return
+        
+        logger.info(f"📢 Sending {len(self.alert_queue)} queued alerts...")
+        
+        sent = await self.notifier.send_deals_report(self.alert_queue)
+        self.stats['total_alerts'] = sent
+        
+        # Clear queue
+        self.alert_queue = []
+        logger.info(f"✅ Queue cleared. {sent} alerts sent.")
+    
+    async def scan_one_way_combo(self, route: Dict, outbound_date: str, return_date: str) -> Optional[Dict]:
+        """
+        RULE 4: Scan one-way combination
+        Gidiş + Dönüş ayrı ayrı tara, kombinasyonu oluştur
         """
         try:
-            logger.info(f"📊 Loading historical data from ucuzaucak.net (max {max_pages} pages)...")
+            logger.info(f"\n🎯 ONE-WAY COMBO SCAN:")
+            logger.info(f"   Outbound: {route['origin']} → {route['destination']} ({outbound_date})")
+            logger.info(f"   Return: {route['destination']} → {route['origin']} ({return_date})")
             
-            # Geçmiş verileri çek
-            deals = await self.ucuzaucak.scrape_multiple_pages(max_pages=max_pages)
+            # Scan outbound
+            outbound = await self.scraper.scrape_one_way_flight(
+                route['origin'],
+                route['destination'],
+                outbound_date
+            )
             
-            if not deals:
-                logger.warning("⚠️ No historical data found from ucuzaucak.net")
-                return
+            if not outbound:
+                logger.warning("❌ Outbound not found")
+                return None
             
-            # Rotaya göre grupla
-            self.historical_data = self.ucuzaucak.aggregate_by_route(deals)
+            await asyncio.sleep(random.uniform(3, 5))
             
-            logger.info(f"✅ Historical data loaded: {len(self.historical_data)} unique routes")
+            # Scan return
+            return_flight = await self.scraper.scrape_one_way_flight(
+                route['destination'],
+                route['origin'],
+                return_date
+            )
             
-            # İstatistik logla
-            for route_key, stats in list(self.historical_data.items())[:5]:
-                logger.info(
-                    f"   {route_key}: Min={stats['min']:.0f} TL, "
-                    f"Avg={stats['avg']:.0f} TL, Max={stats['max']:.0f} TL "
-                    f"({stats['count']} samples)"
-                )
+            if not return_flight:
+                logger.warning("❌ Return not found")
+                return None
+            
+            # Combine
+            combo = await self.scraper.combine_one_way_flights(outbound, return_flight)
+            
+            if combo:
+                self.stats['one_way_combos_found'] += 1
+                
+                # Save to state
+                self.state["one_way_combos"].append({
+                    "route": f"{route['origin']}-{route['destination']}",
+                    "outbound_price": outbound['price'],
+                    "return_price": return_flight['price'],
+                    "total_price": combo['price'],
+                    "real_price": combo['real_price'],
+                    "date": datetime.now().isoformat()
+                })
+                
+                return combo
+            
+            return None
             
         except Exception as e:
-            logger.error(f"❌ Failed to load historical data: {e}")
-            self.historical_data = None
-    
-    async def analyze_deal(self, route: Dict, scrape_result: Dict) -> Dict:
-        """
-        Komple deal analizi:
-        - Dip fiyat tespiti
-        - Mistake fare kontrolü
-        - Alarm filter
-        - Visa check
-        - Gerçek maliyet hesaplama
-        - Fiyat elastikiyeti
-        """
-        route_key = f"{route['origin']}-{route['destination']}"
-        current_price = scrape_result['price']
-        
-        # Fiyat geçmişi
-        price_history = self._get_price_history(route_key)
-        
-        # 1. Dip fiyat analizi
-        bottom_analysis = self.price_analyzer.calculate_bottom_price(price_history)
-        price_category = self.price_analyzer.categorize_price(current_price, bottom_analysis)
-        
-        # 2. Alarm filter
-        should_alert, alert_reason = self.price_analyzer.should_alert(
-            current_price,
-            price_history,
-            self.config.ALARM_PRICE_MULTIPLIER
-        )
-        
-        # 3. Mistake fare?
-        is_mistake_fare = False
-        if price_history:
-            avg_price = sum(price_history) / len(price_history)
-            is_mistake_fare = self.price_analyzer.is_mistake_fare(
-                current_price,
-                avg_price,
-                self.config.MISTAKE_FARE_THRESHOLD
-            )
-        
-        # 4. Visa check
-        visa_info = self.visa_checker.get_visa_message(route['destination'])
-        
-        # 5. Gerçek maliyet
-        real_cost = self.price_analyzer.calculate_real_cost(
-            current_price,
-            scrape_result.get('airline', 'Unknown'),
-            route['destination'],
-            self.config.BAGGAGE_COSTS,
-            self.config.REMOTE_AIRPORT_TRANSPORT
-        )
-        
-        # 6. Fiyat elastikiyeti
-        history_with_dates = self.state["price_history"].get(route_key, [])
-        elasticity = self.price_analyzer.estimate_price_elasticity(history_with_dates)
-        
-        # 7. Geçmiş fiyat karşılaştırması (ucuzaucak.net)
-        historical_comparison = None
-        if self.historical_data:
-            historical_comparison = self.ucuzaucak.compare_with_historical(
-                current_price,
-                route_key,
-                self.historical_data
-            )
-            
-            if historical_comparison:
-                logger.info(
-                    f"📊 Historical comparison for {route_key}: "
-                    f"Percentile: {historical_comparison.get('percentile', 0):.0f}%, "
-                    f"{historical_comparison.get('recommendation', 'N/A')}"
-                )
-        
-        # Fiyat geçmişini güncelle
-        self._update_price_history(route_key, current_price)
-        
-        return {
-            'should_alert': should_alert,
-            'alert_reason': alert_reason,
-            'is_mistake_fare': is_mistake_fare,
-            'bottom_analysis': bottom_analysis,
-            'price_category': price_category,
-            'visa_info': visa_info,
-            'real_cost': real_cost,
-            'elasticity': elasticity,
-            'historical_comparison': historical_comparison,  # Yeni!
-            'is_green_zone': price_category.get('category') == 'bottom',
-            'confidence': scrape_result.get('confidence', 0.0)
-        }
+            logger.error(f"❌ One-way combo error: {e}")
+            return None
     
     async def scan_route(self, route: Dict) -> Optional[Dict]:
         """
-        Tek rota tarama + multi-date sampling
+        Main route scanning with V2.5 enhancements
         """
         try:
             start_time = datetime.now()
             
-            # Tarih çiftleri üret
-            dates = self._generate_smart_dates(count=5)
+            # Generate sweet spot dates
+            dates = self.intel._generate_sweet_spot_dates(count=self.config.DATES_PER_ROUTE)
             
             best_deal = None
             best_price = float('inf')
@@ -293,20 +238,24 @@ class ProjectTitanV2:
                     f"({dep_date} to {ret_date})"
                 )
                 
-                # Scrape
-                result = await self.scraper.scrape_flight(
-                    origin=route['origin'],
-                    destination=route['destination'],
-                    departure_date=dep_date,
-                    return_date=ret_date
-                )
+                # Check if one-way strategy
+                if self.config.SEARCH_STRATEGY == "one_way_combo" and route.get('route_type') == 'one_way':
+                    # One-way combo scan
+                    result = await self.scan_one_way_combo(route, dep_date, ret_date)
+                else:
+                    # Traditional round-trip
+                    result = await self.scraper.scrape_flight(
+                        origin=route['origin'],
+                        destination=route['destination'],
+                        departure_date=dep_date,
+                        return_date=ret_date
+                    )
                 
                 if result and result.get('price'):
-                    price = result['price']
+                    price = result.get('real_price', result['price'])
                     
-                    # Anomali kontrolü
                     if not self.price_analyzer.is_sane_price(price):
-                        logger.warning(f"⚠️ Anomali price: {price:,.0f} TL - skipping")
+                        logger.warning(f"⚠️ Anomalous price: {price:,.0f} TL")
                         continue
                     
                     if price < best_price:
@@ -317,14 +266,13 @@ class ProjectTitanV2:
                             'departure_date': dep_date,
                             'return_date': ret_date
                         }
+                        logger.info(f"💎 New best: {price:,.0f} TL")
                 
-                # Random sleep (anti-detection)
                 await asyncio.sleep(random.uniform(
                     self.config.RANDOM_SLEEP_MIN,
                     self.config.RANDOM_SLEEP_MAX
                 ))
             
-            # Performance tracking
             scan_duration = (datetime.now() - start_time).total_seconds()
             self.stats['scan_times'].append(scan_duration)
             
@@ -340,101 +288,159 @@ class ProjectTitanV2:
             self.stats['failed_scans'] += 1
             return None
     
+    async def analyze_deal(self, route: Dict, scrape_result: Dict) -> Dict:
+        """Analyze deal with V2.5 enhancements"""
+        route_key = f"{route['origin']}-{route['destination']}"
+        
+        # Use real price if available
+        current_price = scrape_result.get('real_price', scrape_result['price'])
+        
+        # Price history (existing logic from V2.4)
+        price_history = self.state["price_history"].get(route_key, [])
+        
+        # Calculate discount
+        meets_threshold = False
+        discount_rate = 0
+        
+        if price_history:
+            prices = [h.get("price", h) if isinstance(h, dict) else h for h in price_history]
+            if prices:
+                avg_price = sum(prices) / len(prices)
+                discount_rate = 1 - (current_price / avg_price)
+                meets_threshold = discount_rate >= self.config.MIN_DISCOUNT_THRESHOLD
+        
+        # Ultra deal & mistake fare
+        is_ultra_deal = discount_rate >= self.config.ULTRA_DEAL_THRESHOLD
+        is_mistake_fare = discount_rate >= self.config.MISTAKE_FARE_THRESHOLD
+        
+        # Should alert
+        should_alert = meets_threshold or is_mistake_fare
+        
+        # Alert reason
+        if is_mistake_fare:
+            alert_reason = f"MISTAKE FARE! {discount_rate:.1%} indirim"
+        elif is_ultra_deal:
+            alert_reason = f"ULTRA DEAL! {discount_rate:.1%} indirim"
+        elif meets_threshold:
+            alert_reason = f"İyi Fırsat: {discount_rate:.1%} indirim"
+        else:
+            alert_reason = f"Yetersiz indirim: {discount_rate:.1%}"
+        
+        # Visa check
+        visa_info = self.visa_checker.get_visa_message(route['destination'])
+        
+        return {
+            'should_alert': should_alert,
+            'alert_reason': alert_reason,
+            'is_mistake_fare': is_mistake_fare,
+            'is_ultra_deal': is_ultra_deal,
+            'discount_rate': discount_rate,
+            'meets_threshold': meets_threshold,
+            'visa_info': visa_info,
+            'is_direct': scrape_result.get('is_direct', False),
+            'confidence': scrape_result.get('confidence', 0.0),
+            'baggage_breakdown': scrape_result.get('baggage_breakdown'),
+            'is_one_way_combo': scrape_result.get('flight_type') == 'one_way_combo',
+            'is_alternative': scrape_result.get('is_alternative', False)
+        }
+    
     async def run_intelligence_cycle(self):
         """
-        Ana istihbarat döngüsü:
-        1. RSS intelligence toplama
-        2. Stratejik rotalar üretme
-        3. Her rotayı tarama
-        4. Deal analizi
-        5. Alarm gönderme (Ghost Protocol + Anti-Spam)
+        Main V2.5 intelligence cycle with night scanning
         """
         try:
-            logger.info("=" * 60)
-            logger.info("🦅 PROJECT TITAN V2.3 - Intelligence Cycle Starting")
-            logger.info("=" * 60)
+            logger.info("\n" + "=" * 70)
+            logger.info("🦅 PROJECT TITAN V2.5 - PROFESSIONAL FLIGHT HACKER")
+            logger.info("=" * 70)
             
-            # ❌ SESSİZ BAŞLANGIÇ: Startup mesajı KALDIRILDI
-            # GitHub Actions her 4 saatte çalışır, spam yaratmamak için sessiz başlangıç
-            # await self.notifier.send_startup_message()  # DEVRE DIŞI
+            # Check if scan time (night 02:00-05:00)
+            if self.config.QUEUE_NIGHT_ALERTS and not self._is_scan_time():
+                logger.info(f"⏰ Not scan time. Current: {datetime.now().strftime('%H:%M')}")
+                logger.info(f"   Scan hours: {self.config.SCAN_HOURS[0].strftime('%H:%M')} - {self.config.SCAN_HOURS[1].strftime('%H:%M')}")
+                
+                # Check if morning - send queued alerts
+                if self._is_alert_time() and self.alert_queue:
+                    await self._send_queued_alerts()
+                
+                return
             
-            # 0. Geçmiş fiyat verilerini yükle (ilk cycle'da)
-            if self.historical_data is None:
-                await self.load_historical_data(max_pages=3)
+            logger.info(f"✅ Scan time! Starting intelligence cycle...")
             
-            # 1. Stratejik rotalar al
-            routes = await self.intel.get_strategic_routes(max_routes=30)
+            # ⚠️ SWEET SPOT INFO
+            sweet_start = datetime.now() + timedelta(days=self.config.DATE_RANGE_MIN)
+            sweet_end = datetime.now() + timedelta(days=self.config.DATE_RANGE_MAX)
+            logger.info(f"📅 SWEET SPOT WINDOW:")
+            logger.info(f"   {sweet_start.strftime('%Y-%m-%d')} → {sweet_end.strftime('%Y-%m-%d')}")
+            logger.info(f"   ({self.config.DATE_RANGE_MIN}-{self.config.DATE_RANGE_MAX} gün / {self.config.DATE_RANGE_MIN//7}-{self.config.DATE_RANGE_MAX//7} hafta)")
+            logger.info(f"   ⚠️ SADECE bu aralıktaki uçuşlar taranacak!")
+            
+            # Get strategic routes
+            routes = await self.intel.get_strategic_routes(max_routes=self.config.ROUTES_TO_SCAN)
             self.stats['total_routes'] = len(routes)
-            logger.info(f"📋 {len(routes)} routes loaded for scanning")
             
             deals_found = []
             
-            # 2. Her rotayı tara
+            # Scan routes
             for idx, route in enumerate(routes, 1):
                 try:
                     logger.info(f"\n--- Route {idx}/{len(routes)} ---")
                     
-                    # Scrape
                     deal = await self.scan_route(route)
                     
                     if deal:
-                        # Analiz
                         analysis = await self.analyze_deal(route, deal)
                         deal['analysis'] = analysis
                         
-                        # Alarm gerekli mi?
                         if analysis['should_alert']:
-                            deals_found.append(deal)
+                            # Queue alert if night time, send immediately if day time
+                            if self.config.QUEUE_NIGHT_ALERTS and not self._is_alert_time():
+                                self._queue_alert(deal)
+                            else:
+                                deals_found.append(deal)
                             
-                            # Stats güncelle
+                            # Stats
                             if analysis['is_mistake_fare']:
                                 self.stats['mistake_fares'] += 1
-                            if analysis['is_green_zone']:
-                                self.stats['bottom_deals'] += 1
+                            if analysis['is_ultra_deal']:
+                                self.stats['ultra_deals'] += 1
                             
                             logger.info(
                                 f"🔥 DEAL FOUND: {deal['origin']} → {deal['destination']} "
-                                f"@ {deal['price']:,.0f} TL "
-                                f"({analysis['price_category']['emoji']} {analysis['price_category']['action']})"
+                                f"@ {deal.get('real_price', deal['price']):,.0f} TL "
+                                f"[{analysis['alert_reason']}]"
                             )
                     
-                    # Rotalar arası rastgele sleep
                     await asyncio.sleep(random.uniform(5, 10))
                     
                 except Exception as e:
-                    logger.error(f"❌ Route processing error: {e}")
+                    logger.error(f"❌ Route error: {e}")
                     continue
             
-            # 3. Alarm gönder (Ghost Protocol + Anti-Spam kontrollü)
-            if deals_found:
-                logger.info(f"\n📢 Sending {len(deals_found)} deal alerts...")
+            # Send immediate alerts (if day time)
+            if deals_found and self._is_alert_time():
+                logger.info(f"\n📢 Sending {len(deals_found)} immediate alerts...")
                 sent = await self.notifier.send_deals_report(deals_found)
-                self.stats['total_alerts'] = sent
-            else:
-                logger.info("📭 No significant deals found in this cycle")
+                self.stats['total_alerts'] += sent
             
-            # 4. State güncelle
+            # Update state
             self.state["last_scan"] = datetime.now().isoformat()
             self.state["total_scans"] += 1
             self._save_state()
             
-            # 5. Performance raporu
+            # Performance report
             self._log_performance()
             
-            # 6. Self-healing check
-            await self._check_system_health()
-            
-            logger.info("=" * 60)
-            logger.info("✅ Intelligence Cycle Complete")
-            logger.info("=" * 60)
+            logger.info("\n" + "=" * 70)
+            logger.info("✅ V2.5 Intelligence Cycle Complete")
+            logger.info("=" * 70)
             
         except Exception as e:
-            logger.error(f"❌ Critical error in intelligence cycle: {e}")
+            logger.error(f"❌ Critical error: {e}")
             logger.error(traceback.format_exc())
             await self.notifier.send_error_alert(str(e))
     
     def _log_performance(self):
-        """Performance metriklerini logla"""
+        """Log V2.5 performance"""
         if self.stats['scan_times']:
             avg_time = sum(self.stats['scan_times']) / len(self.stats['scan_times'])
         else:
@@ -444,77 +450,45 @@ class ProjectTitanV2:
         if self.stats['total_routes'] > 0:
             success_rate = (self.stats['successful_scans'] / self.stats['total_routes']) * 100
         
-        logger.info("\n📊 PERFORMANCE METRICS:")
+        logger.info("\n📊 V2.5 PERFORMANCE METRICS:")
         logger.info(f"   Total Routes: {self.stats['total_routes']}")
         logger.info(f"   Successful: {self.stats['successful_scans']}")
         logger.info(f"   Failed: {self.stats['failed_scans']}")
         logger.info(f"   Success Rate: {success_rate:.1f}%")
         logger.info(f"   Avg Scan Time: {avg_time:.1f}s")
-        logger.info(f"   Bottom Deals: {self.stats['bottom_deals']}")
+        logger.info(f"   One-Way Combos: {self.stats['one_way_combos_found']}")
+        logger.info(f"   Alternative Airports: {self.stats['alternative_airports_found']}")
+        logger.info(f"   Ultra Deals: {self.stats['ultra_deals']}")
         logger.info(f"   Mistake Fares: {self.stats['mistake_fares']}")
         logger.info(f"   Alerts Sent: {self.stats['total_alerts']}")
-    
-    async def _check_system_health(self):
-        """
-        Self-healing: Sistem sağlığını kontrol et
-        Başarı oranı < %70 ise uyar
-        """
-        if self.stats['total_routes'] == 0:
-            return
-        
-        failure_rate = self.stats['failed_scans'] / self.stats['total_routes']
-        
-        if failure_rate > self.config.MAX_FAILURE_RATE:
-            logger.error(
-                f"⚠️ HIGH FAILURE RATE: {failure_rate:.1%} "
-                f"(Threshold: {self.config.MAX_FAILURE_RATE:.1%})"
-            )
-            
-            alert_msg = f"""
-⚠️ SYSTEM HEALTH WARNING
-
-Failure Rate: {failure_rate:.1%}
-Threshold: {self.config.MAX_FAILURE_RATE:.1%}
-
-Action Required:
-- Check IP reputation
-- Verify proxy settings
-- Review rate limits
-- Check Google Flights changes
-
-System may need IP rotation or cooldown period.
-"""
-            await self.notifier.send_error_alert(alert_msg)
+        logger.info(f"   Queued Alerts: {self.stats['queued_alerts']}")
     
     async def run_forever(self):
-        """
-        Sürekli monitoring (local test için)
-        Her 4 saatte bir döngü
-        """
+        """Continuous monitoring with schedule"""
         while True:
             try:
                 await self.run_intelligence_cycle()
                 
-                # 4 saat bekle
-                logger.info(f"😴 Sleeping for 4 hours... Next scan at {(datetime.now() + timedelta(hours=4)).strftime('%H:%M')}")
-                await asyncio.sleep(4 * 60 * 60)
+                # Sleep until next scan time
+                logger.info(f"😴 Sleeping until next scan time...")
+                await asyncio.sleep(1 * 60 * 60)  # 1 hour
                 
             except KeyboardInterrupt:
-                logger.info("👋 Shutting down gracefully...")
+                logger.info("👋 Shutting down...")
                 break
             except Exception as e:
                 logger.error(f"❌ Unexpected error: {e}")
-                await asyncio.sleep(60)  # 1 dakika bekle, retry
+                await asyncio.sleep(60)
 
 async def main():
     """Entry point"""
     try:
-        titan = ProjectTitanV2()
+        titan = ProjectTitanV25()
         
-        # GitHub Actions için tek cycle
+        # Single cycle (GitHub Actions)
         await titan.run_intelligence_cycle()
         
-        # Local test için sürekli monitoring
+        # Continuous (local)
         # await titan.run_forever()
         
     except Exception as e:
