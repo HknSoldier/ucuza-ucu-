@@ -17,10 +17,17 @@ from scraper_engine_v25 import ProfessionalFlightScraper
 from intel_center_v25 import FlightHackerIntelCenter
 
 # V2.3 modules (still compatible)
-sys.path.append('/mnt/user-data/uploads')
-from notifier import TelegramNotifier
-from price_analyzer import PriceAnalyzer
-from visa_checker import VisaChecker
+# GitHub Actions'da aynı klasörde olacak, path eklemeye gerek yok
+try:
+    from notifier import TelegramNotifier
+    from price_analyzer import PriceAnalyzer
+    from visa_checker import VisaChecker
+except ImportError:
+    # Fallback: eğer başka yerdeyse
+    sys.path.append('.')
+    from notifier import TelegramNotifier
+    from price_analyzer import PriceAnalyzer
+    from visa_checker import VisaChecker
 
 # Logging
 logging.basicConfig(
