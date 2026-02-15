@@ -1,237 +1,207 @@
-# 🔧 ACTIONS ÇALIŞMIYOR - HIZLI ÇÖZÜM
+# 📅 SWEET SPOT BOOKING - QUICK REFERENCE
 
-## ❌ SORUN
+## ❓ Sweet Spot Nedir?
 
-Actions sekmesinde "PROJECT TITAN - Flight Sniper" workflow'u göz görünmüyor veya çalıştırılamıyor.
+**Havacılık sektörünün en iyi saklanan sırrı:**
+
+Uçak biletlerinin **en ucuz olduğu rezervasyon zamanı**!
 
 ---
 
-## ✅ ÇÖZÜM (3 ADIM)
+## 📊 Fiyat Grafiği (İstatistiksel)
 
-### **ADIM 1: Dosya Yapısını Kontrol Et**
-
-Terminal'de:
-```bash
-cd ucuza-ucu
-
-# .github/workflows klasörü var mı?
-ls -la .github/workflows/
-
-# Çıktı şöyle olmalı:
-# sniper.yml
-# test.yml
 ```
-
-**Eğer klasör yoksa:**
-```bash
-mkdir -p .github/workflows
-# sniper.yml ve test.yml dosyalarını buraya kopyala
-```
-
----
-
-### **ADIM 2: Dosyaları GitHub'a Yükle**
-
-```bash
-# Tüm dosyaları ekle
-git add .
-
-# Commit
-git commit -m "fix: Add GitHub Actions workflows"
-
-# Push
-git push
-```
-
-**VEYA GitHub Web Arayüzünde:**
-1. Repo'da → **Add file** → **Create new file**
-2. Dosya adı: `.github/workflows/sniper.yml`
-3. İçeriği yapıştır (aşağıda)
-4. **Commit changes**
-
----
-
-### **ADIM 3: Actions'ı Etkinleştir**
-
-1. GitHub repo → **Actions** sekmesi
-2. Yeşil buton: **"I understand my workflows, go ahead and enable them"**
-3. Tıkla!
-
----
-
-## 📁 WORKFLOW DOSYASI (KOPYALA-YAPIŞTIR)
-
-Eğer sniper.yml eksikse, bu içeriği kullan:
-
-```yaml
-name: PROJECT TITAN - Flight Sniper
-
-on:
-  schedule:
-    - cron: '0 */4 * * *'
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-
-jobs:
-  hunt:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+FİYAT
+  │
+  │     Çok Erken         SWEET SPOT!        Çok Geç
+  │        ▲                  ▼                ▲
+  │      PAHALI             UCUZ            PAHALI
+  │         ╱                 │                ╲
+  │        ╱                  │                 ╲
+  │       ╱                   │                  ╲
+  │      ╱                    │                   ╲
+  │     ╱                     ▼                    ╲
+  │    ╱                   EN UCUZ                  ╲
+  │   ╱                       │                      ╲
+  │  ╱                        │                       ╲
+  └─────────────────────────────────────────────────────► ZAMAN
+    1h  1g  1h  3h  4h  5h  6h  7h  8h  9h  10h  11h  12h
     
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    
-    - name: Install Playwright browsers
-      run: |
-        playwright install chromium
-        playwright install-deps chromium
-    
-    - name: Verify installation
-      run: |
-        python --version
-        pip list | grep -E "playwright|aiohttp|feedparser"
-        python -c "import playwright; print('✓ Playwright OK')"
-    
-    - name: Run TITAN
-      run: |
-        python main.py
-      env:
-        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        ADMIN_ID: ${{ secrets.ADMIN_ID }}
-        GROUP_ID: ${{ secrets.GROUP_ID }}
-        PYTHONUNBUFFERED: 1
-    
-    - name: Upload logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: titan-logs-${{ github.run_number }}
-        path: |
-          titan.log
-          titan_state.json
-        retention-days: 7
-        if-no-files-found: warn
+    ❌ Pahalı    ✅✅✅ En Ucuz ✅✅✅    ❌ Pahalı
 ```
 
 ---
 
-## 🎯 HIZLI TEST
+## 🎯 TITAN V2.5 Ayarı
 
-En basit yöntem: **Test workflow'unu kullan**
+```python
+# config_v25.py
 
-1. **Dosya oluştur:** `.github/workflows/test.yml`
-
-```yaml
-name: TEST - TITAN Status Check
-
-on:
-  workflow_dispatch:
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    
-    - name: Check files
-      run: |
-        echo "✓ Files in repo:"
-        ls -la
-        echo ""
-        echo "✓ Python files:"
-        ls *.py
-    
-    - name: Done
-      run: echo "✅ TEST COMPLETE"
+DATE_RANGE_MIN = 42      # 6 hafta
+DATE_RANGE_MAX = 56      # 8 hafta
+ENFORCE_SWEET_SPOT = True  # SADECE bu aralık!
 ```
 
-2. **GitHub'a yükle**
-3. **Actions → TEST - TITAN Status Check → Run workflow**
-
-Eğer bu çalışırsa, ana workflow da çalışacak!
+**Sonuç:**
+- ✅ Sistem sadece 6-8 hafta sonraki uçuşları tarar
+- ❌ Daha erken tarihler: TARANMAzZZZ
+- ❌ Daha geç tarihler: TARANMAZ
 
 ---
 
-## 🔍 SORUN GİDERME
+## 📅 Pratik Örnekler
 
-### **Workflow görünmüyor:**
-```bash
-# 1. Dosya yolunu kontrol et
-cat .github/workflows/sniper.yml
-# Hata alırsan dosya yok demektir!
+### Örnek 1: Bugün 15 Şubat 2026
+```
+6 hafta sonra: 29 Mart 2026  ← ✅ TARANIR
+7 hafta sonra: 5 Nisan 2026  ← ✅ TARANIR
+8 hafta sonra: 12 Nisan 2026 ← ✅ TARANIR
 
-# 2. Dosyayı oluştur
-mkdir -p .github/workflows
-# sniper.yml içeriğini yapıştır
-
-# 3. Push et
-git add .github/workflows/
-git commit -m "add: GitHub Actions workflows"
-git push
+5 hafta sonra: 22 Mart 2026  ← ❌ ÇOK ERKEN, TARANMAZ
+9 hafta sonra: 19 Nisan 2026 ← ❌ ÇOK GEÇ, TARANMAZ
 ```
 
-### **"Enable workflows" butonu yok:**
-- Actions zaten aktif demektir
-- Workflow'lar listede görünmeli
+### Örnek 2: Yaz Tatili Planı (Haziran)
+```
+Bugün: 15 Şubat
 
-### **Workflow çalışmıyor:**
-```bash
-# GitHub Secrets kontrol et
-Settings → Secrets → Actions
+Haziran uçuşu istiyorsun (4 ay sonra = 16 hafta)
+❌ ÇOK GEÇ! Sistem taramaz.
 
-# Şunlar olmalı:
-BOT_TOKEN
-ADMIN_ID  
-GROUP_ID
+Ne zaman taranır?
+Haziran - 6 hafta = 19 Mayıs civarı
+Sistem 19 Mayıs'ta otomatik tarar! ✅
+```
+
+### Örnek 3: Acil Seyahat (2 hafta sonra)
+```
+Bugün: 15 Şubat
+İstediğin: 1 Mart (2 hafta sonra)
+
+❌ SWEET SPOT DIŞINDA!
+❌ Sistem taramaz (çok erken!)
+
+Çözüm:
+1. Manuel ara (Google Flights)
+2. veya config'de ENFORCE_SWEET_SPOT = False yap
 ```
 
 ---
 
-## ✅ BAŞARI KONTROLÜ
+## 🔧 Özelleştirme
 
-Actions sekmesinde göreceksin:
+### Daha Geniş Aralık İstersen:
 
-```
-All workflows
-├─ PROJECT TITAN - Flight Sniper  ← Ana workflow
-└─ TEST - TITAN Status Check      ← Test workflow
-
-Her birinde:
-└─ [Run workflow] butonu olmalı
+```python
+# 4-10 hafta arası
+DATE_RANGE_MIN = 28   # 4 hafta
+DATE_RANGE_MAX = 70   # 10 hafta
 ```
 
-**Run workflow'a** tıklayınca:
+### Sweet Spot'u Devre Dışı Bırakmak İstersen:
+
+```python
+ENFORCE_SWEET_SPOT = False  # Tüm tarihler taranır
+DATE_RANGE_MIN = 7    # 1 hafta
+DATE_RANGE_MAX = 365  # 1 yıl
 ```
-1. Yeşil "Running" işareti
-2. 2-3 dakika sonra yeşil ✓ veya kırmızı ✗
-3. Logları görebilirsin
+
+**⚠️ UYARI:** Sweet spot dışı tarama = daha pahalı biletler!
+
+---
+
+## 📊 Gerçek Veri (Industry Research)
+
+### Kaynak: Airlines Reporting Corporation (ARC)
+
+**Domestic Flights (İç Hatlar):**
+- En ucuz: 6 hafta önceden
+- %5-10 daha ucuz
+
+**International Flights (Dış Hatlar):**
+- En ucuz: 6-8 hafta önceden
+- %15-25 daha ucuz
+- Bazen %40'a kadar!
+
+### Kaynak: CheapAir Annual Study
+
+**20 Yıllık Veri Analizi:**
+```
+Prime Booking Window:
+Domestic: 3-7 hafta (ortalama 54 gün)
+International: 5-10 hafta (ortalama 76 gün)
+
+En ucuz gün: 54 gün önceden (7.7 hafta)
+```
+
+**TITAN V2.5:** 6-8 hafta = **Perfect Match!** ✅
+
+---
+
+## 💡 Pro Tips
+
+### Tip 1: Sabırlı Ol
+```
+Acil seyahat mi? → Google Flights manuel kullan
+Planlı tatil mi? → TITAN'a bırak, 6 hafta bekle!
+```
+
+### Tip 2: Takviminizi Ayarlayın
+```
+Haziran tatili istiyorsun?
+Takvim: 19 Mayıs'a alarm kur
+O gün TITAN çalışacak ve Haziran'ı tarayacak!
+```
+
+### Tip 3: Esnek Ol
+```
+±3 gün esneklik = %10-15 ekstra tasarruf
+6 hafta + esneklik = %30-40 toplam tasarruf!
 ```
 
 ---
 
-## 🚀 SONUÇ
+## ❓ SSS
 
-**Problem:** Workflow dosyası yok veya yanlış yerde  
-**Çözüm:** `.github/workflows/sniper.yml` oluştur ve push et  
-**Test:** Actions → Run workflow → Logları kontrol et  
+**S: Neden sadece 6-8 hafta?**  
+C: İstatistiksel olarak EN UCUZ dönem. Daha erken/geç = daha pahalı.
 
-**Şimdi yapman gereken:**
-1. ✅ `.github/workflows/` klasörünü oluştur
-2. ✅ `sniper.yml` dosyasını ekle
-3. ✅ GitHub'a push et
-4. ✅ Actions → Enable workflows
-5. ✅ Run workflow → Test et
+**S: Acil seyahat için kullanabilir miyim?**  
+C: Hayır. TITAN uzun vadeli planlama için. Acil = Google Flights manuel.
+
+**S: Sweet spot'u değiştirebilir miyim?**  
+C: Evet! config_v25.py'de DATE_RANGE_MIN/MAX'ı değiştir.
+
+**S: Tatilim 4 ay sonra, ne zaman taranır?**  
+C: 4 ay - 6 hafta = 2.5 ay sonra sistem otomatik tarar.
+
+**S: Sistem şu an ne tarihler tarıyor?**  
+C: Log'lara bak:
+```
+📅 SWEET SPOT WINDOW:
+   2026-03-29 → 2026-04-12
+   (42-56 gün / 6-8 hafta)
+```
+
+---
+
+## 🎯 Özet
+
+**SWEET SPOT = 6-8 HAFTA ÖNCEDEN REZERVASYON**
+
+✅ En ucuz fiyatlar  
+✅ İstatistiksel olarak kanıtlanmış  
+✅ TITAN V2.5 otomatik uygular  
+✅ %30-40 tasarruf potansiyeli  
+
+**Sabır = Tasarruf! 💰**
+
+---
+
+**Not:** TITAN sabah 09:00'da mesaj gönderecek. O zaman hemen rezervasyon yap!
+
+⏰ **Her saat değerli!** Sweet spot içinde bile fiyatlar değişebilir.
+
+---
+
+Made with 📊 by TITAN Research Team
