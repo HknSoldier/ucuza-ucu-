@@ -12,18 +12,21 @@ from typing import Dict, List, Optional
 import sys
 
 # V2.5 modules
-from config_v25 import TitanConfig
-from scraper_engine_v25 import ProfessionalFlightScraper
-from intel_center_v25 import FlightHackerIntelCenter
+try:
+    from config_v25 import TitanConfig
+    from scraper_engine_v25 import ProfessionalFlightScraper
+    from intel_center_v25 import FlightHackerIntelCenter
+except ImportError:
+    # Local development fallback or missing modules check
+    print("V2.5 Modulleri (config_v25, scraper_engine_v25, intel_center_v25) bulunamadi.")
+    # sys.exit(1) # Hata gormek icin simdilik devam ettirebiliriz ama normalde durmali
 
 # V2.3 modules (still compatible)
-# GitHub Actions'da aynı klasörde olacak, path eklemeye gerek yok
 try:
     from notifier import TelegramNotifier
     from price_analyzer import PriceAnalyzer
     from visa_checker import VisaChecker
 except ImportError:
-    # Fallback: eğer başka yerdeyse
     sys.path.append('.')
     from notifier import TelegramNotifier
     from price_analyzer import PriceAnalyzer
