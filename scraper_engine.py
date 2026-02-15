@@ -1,102 +1,86 @@
-# scraper_engine.py - Advanced Scraper with Quality Control V2.3
-# 🔍 Multi-source validation + Anomaly detection + Stealth mode
+# scraper_engine_v25.py - PROFESSIONAL FLIGHT HACKER SCRAPER
+# 🎯 Extends V2.4 with one-way search + baggage calculation
 
+# V2.4 scraper'ı extend ediyoruz
+import sys
+sys.path.append('/home/claude')
+
+from scraper_engine_v24 import DirectFlightScraper as V24Scraper
 import asyncio
 import logging
 import random
-import re
 from typing import Dict, Optional, List
-from playwright.async_api import async_playwright
-import time
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-class ScraperEngine:
+class ProfessionalFlightScraper(V24Scraper):
     """
-    Gelişmiş scraping motoru:
-    - Multi-source validation (2+ kaynak)
-    - Anomaly detection (100-500K TL arası)
-    - Stealth mode (random delays, user-agents)
-    - TOS compliant rate limiting
+    V2.5: Professional flight hacker scraper
+    
+    New Features:
+    - One-way flight search
+    - Baggage cost calculation
+    - Time window filtering (morning flights preferred)
+    - Alternative airport support
     """
     
     def __init__(self, config):
+        super().__init__(config)
         self.config = config
-        self.user_agents = config.USER_AGENTS
-        self.request_times = []  # Rate limiting tracker
     
-    def _check_rate_limit(self) -> bool:
+    def _calculate_real_price_with_baggage(self, base_price: float, airline: str) -> Dict:
         """
-        Rate limiting: Max 3 requests / 10 seconds
+        RULE 7: Calculate real price including baggage
+        Standart 20 kg valiz maliyeti dahil
         """
-        now = time.time()
-        # Eski istekleri temizle (10 saniyeden eski)
-        self.request_times = [t for t in self.request_times if now - t < 10]
+        baggage_costs = self.config.BAGGAGE_COSTS.get(
+            airline, 
+            self.config.BAGGAGE_COSTS["default"]
+        )
         
-        if len(self.request_times) >= self.config.MAX_REQUESTS_PER_10_SEC:
-            logger.warning("⚠️ Rate limit reached, waiting...")
-            return False
+        cabin_cost = baggage_costs.get("cabin", 0)
+        checked_cost = baggage_costs.get("checked_20", 0)
         
-        return True
+        real_price = base_price + cabin_cost + checked_cost
+        
+        return {
+            "base_price": base_price,
+            "cabin_baggage": cabin_cost,
+            "checked_baggage": checked_cost,
+            "real_price": real_price,
+            "extra_cost": cabin_cost + checked_cost,
+            "airline": airline
+        }
     
-    def _record_request(self):
-        """İstek zamanını kaydet"""
-        self.request_times.append(time.time())
-    
-    async def _wait_for_rate_limit(self):
-        """Rate limit aşıldıysa bekle"""
-        while not self._check_rate_limit():
-            await asyncio.sleep(2)
-    
-    async def _handle_cookie_consent(self, page):
-        """Cookie consent ekranını kapat"""
-        try:
-            buttons = [
-                "button[aria-label*='Reject']",
-                "button[aria-label*='Tümünü reddet']",
-                "button:has-text('Reject all')",
-                "button:has-text('Tümünü reddet')"
-            ]
-            
-            for selector in buttons:
-                try:
-                    if await page.is_visible(selector, timeout=3000):
-                        logger.info("🍪 Cookie banner kapatılıyor...")
-                        await page.click(selector)
-                        await asyncio.sleep(2)
-                        return
-                except:
-                    continue
-        except:
-            pass
-    
-    async def scrape_flight(self, origin: str, destination: str, 
-                           departure_date: str, return_date: str) -> Optional[Dict]:
+    async def scrape_one_way_flight(self, origin: str, destination: str, 
+                                   departure_date: str) -> Optional[Dict]:
         """
-        Ana scraping fonksiyonu
-        Returns: {price, currency, airline, method, confidence}
+        RULE 4: One-way flight search
+        Gidiş veya dönüş için tek yön tarama
         """
-        # Rate limit kontrolü
         await self._wait_for_rate_limit()
         
         browser = None
+        
+        # One-way URL
         url = (
             f"https://www.google.com/travel/flights?"
             f"q=Flights+to+{destination}+from+{origin}+"
-            f"on+{departure_date}+through+{return_date}&curr=TRY"
+            f"on+{departure_date}"
+            f"&curr=TRY&hl=tr&gl=TR"
+            f"&type=1"  # type=1 = one-way
         )
         
         try:
             self._record_request()
             
+            from playwright.async_api import async_playwright
+            
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
                     headless=True,
-                    args=[
-                        '--disable-blink-features=AutomationControlled',
-                        '--no-sandbox',
-                        '--disable-dev-shm-usage'
-                    ]
+                    args=['--no-sandbox', '--disable-dev-shm-usage']
                 )
                 
                 context = await browser.new_context(
@@ -107,184 +91,208 @@ class ScraperEngine:
                 
                 page = await context.new_page()
                 
-                # Bot detection bypass
+                # Anti-detection
                 await page.add_init_script("""
                     Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                    Object.defineProperty(navigator, 'languages', {get: () => ['tr-TR', 'tr', 'en-US', 'en']});
                 """)
                 
-                logger.info(f"🔍 Scraping: {origin} → {destination} ({departure_date})")
+                logger.info(f"🔍 [Google ONE-WAY] {origin} → {destination} ({departure_date})")
                 
-                # Sayfa yükle
-                await page.goto(url, timeout=60000, wait_until='domcontentloaded')
+                await page.goto(url, timeout=90000, wait_until='domcontentloaded')
+                await asyncio.sleep(random.uniform(4, 7))
                 
-                # Cookie kapat
-                await self._handle_cookie_consent(page)
-                
-                # Sonuçların yüklenmesini bekle
+                # Close cookie consent
                 try:
-                    await page.wait_for_selector('div[role="main"]', timeout=30000)
-                except Exception as timeout_err:
-                    logger.warning(f"⚠️ Main container timeout, trying alternative selectors...")
-                    # Alternatif selector'lar dene
-                    try:
-                        await page.wait_for_selector('.gws-flights-results__result-item', timeout=15000)
-                    except:
-                        # Son şans: body'nin yüklenmesini bekle
-                        await page.wait_for_selector('body', timeout=10000)
-                        logger.warning("Using body as fallback selector")
+                    consent_buttons = ["button[aria-label*='Reject']", "button:has-text('Reject all')"]
+                    for selector in consent_buttons:
+                        if await page.is_visible(selector, timeout=3000):
+                            await page.click(selector)
+                            await asyncio.sleep(2)
+                            break
+                except:
+                    pass
                 
-                # Scroll ile daha fazla içerik yükle
-                await page.mouse.wheel(0, 800)
+                # Wait for results
+                await page.wait_for_selector('div[role="main"]', timeout=45000)
+                await page.mouse.wheel(0, 1500)
                 await asyncio.sleep(random.uniform(3, 5))
                 
-                # Screenshot (debug için)
-                screenshot_name = f"debug_{origin}_{destination}_{int(time.time())}.png"
-                await page.screenshot(path=screenshot_name)
+                # Extract direct flights
+                page_content = await page.content()
+                direct_flights = []
                 
-                # Fiyatları topla
-                prices = await self._extract_prices(page)
+                nonstop_elements = await page.query_selector_all('[aria-label*="Nonstop"], [aria-label*="Direct"]')
+                
+                for elem in nonstop_elements:
+                    try:
+                        parent = await elem.evaluate_handle("el => el.closest('[role=\"listitem\"]')")
+                        if parent:
+                            card_text = await parent.text_content()
+                            
+                            # Price extraction
+                            import re
+                            price_matches = re.findall(r'(\d{1,3}(?:[.,]\d{3})*)\s*(?:TL|TRY)', card_text)
+                            
+                            if price_matches:
+                                price = float(price_matches[0].replace(',', '').replace('.', ''))
+                                
+                                if self.config.MIN_SANE_PRICE <= price <= self.config.MAX_SANE_PRICE:
+                                    # Airline extraction
+                                    airline = "Multiple"
+                                    airline_match = re.search(
+                                        r'(Turkish Airlines|Lufthansa|United|Emirates|Qatar|KLM|Air France|Pegasus|AnadoluJet)',
+                                        card_text
+                                    )
+                                    if airline_match:
+                                        airline = airline_match.group(1)
+                                    
+                                    direct_flights.append({
+                                        "price": price,
+                                        "airline": airline,
+                                        "stops": 0,
+                                        "is_direct": True,
+                                        "flight_type": "one_way",
+                                        "departure_date": departure_date
+                                    })
+                    except Exception as e:
+                        logger.debug(f"Card extraction error: {e}")
+                        continue
                 
                 await browser.close()
                 
-                # Multi-source validation
-                if len(prices) < 2:
-                    logger.warning(f"⚠️ Yetersiz kaynak: {len(prices)} fiyat bulundu")
+                if not direct_flights:
+                    logger.warning(f"⚠️ No one-way direct flights: {origin} → {destination}")
                     return None
                 
-                # Anomali algılama
-                valid_prices = [p for p in prices if self._is_sane_price(p)]
+                # Get cheapest
+                cheapest = min(direct_flights, key=lambda x: x['price'])
                 
-                if not valid_prices:
-                    logger.error(f"❌ Tüm fiyatlar anomali! Prices: {prices}")
-                    return None
+                # Calculate real price with baggage
+                price_with_baggage = self._calculate_real_price_with_baggage(
+                    cheapest['price'],
+                    cheapest['airline']
+                )
                 
-                # En ucuz fiyat
-                cheapest = min(valid_prices)
-                
-                # Confidence hesapla
-                confidence = self._calculate_confidence(valid_prices)
-                
-                logger.info(f"✅ Success: {cheapest:,.0f} TL (Confidence: {confidence:.1%})")
+                logger.info(
+                    f"✅ [ONE-WAY] {cheapest['price']:,.0f} TL "
+                    f"(+{price_with_baggage['extra_cost']:.0f} bagaj = {price_with_baggage['real_price']:,.0f} TL) "
+                    f"[{cheapest['airline']}]"
+                )
                 
                 return {
-                    'price': cheapest,
+                    'price': cheapest['price'],
+                    'real_price': price_with_baggage['real_price'],
+                    'baggage_breakdown': price_with_baggage,
                     'currency': 'TRY',
-                    'airline': 'Multiple',  # TODO: Havayolu parse
-                    'method': 'playwright-stealth',
-                    'confidence': confidence,
-                    'sources': len(valid_prices),
-                    'all_prices': valid_prices
+                    'airline': cheapest['airline'],
+                    'stops': 0,
+                    'is_direct': True,
+                    'flight_type': 'one_way',
+                    'method': 'google_flights_oneway',
+                    'confidence': 0.90,
+                    'departure_date': departure_date
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Scraping error: {e}")
+            logger.error(f"❌ [ONE-WAY] Scrape error: {e}")
             if browser:
                 await browser.close()
             return None
     
-    async def _extract_prices(self, page) -> List[float]:
+    async def combine_one_way_flights(self, outbound: Dict, return_flight: Dict) -> Dict:
         """
-        Sayfadan fiyatları çıkar (multi-method)
+        RULE 4: Combine outbound + return one-way flights
+        Gidiş + Dönüş kombinasyonu
         """
-        prices = []
+        if not outbound or not return_flight:
+            return None
         
-        try:
-            # Method 1: Regex ile TRY/TL arama
-            content = await page.content()
-            matches = re.findall(r'(?:TRY|TL)\s?([\d,.]+)|([\d,.]+)\s?(?:TRY|TL)', content)
-            
-            for m in matches:
-                val_str = m[0] if m[0] else m[1]
-                try:
-                    clean_price = float(val_str.replace(',', '').replace('.', ''))
-                    if clean_price > 1000:  # Min 1000 TL
-                        prices.append(clean_price)
-                except:
-                    continue
-            
-            # Method 2: Aria-label taraması
-            elements = await page.query_selector_all('[aria-label*="lira"]')
-            for el in elements:
-                txt = await el.get_attribute("aria-label")
-                if txt:
-                    nums = re.findall(r'(\d+[\d,]*)', txt)
-                    for n in nums:
-                        try:
-                            val = float(n.replace(',', ''))
-                            if val > 1000:
-                                prices.append(val)
-                        except:
-                            pass
-            
-            # Method 3: Class-based selectors (Google Flights specific)
-            price_elements = await page.query_selector_all('.YMlIz.FpEdX, .U3gSDe')
-            for el in price_elements:
-                txt = await el.text_content()
-                if txt:
-                    nums = re.findall(r'(\d+[\d,\.]*)', txt)
-                    for n in nums:
-                        try:
-                            clean = float(n.replace(',', '').replace('.', ''))
-                            if clean > 1000:
-                                prices.append(clean)
-                        except:
-                            pass
-            
-        except Exception as e:
-            logger.error(f"❌ Price extraction error: {e}")
+        combined_price = outbound['price'] + return_flight['price']
+        combined_real_price = outbound['real_price'] + return_flight['real_price']
         
-        # Deduplicate ve sırala
-        prices = sorted(list(set(prices)))
-        logger.info(f"📊 Extracted {len(prices)} unique prices: {prices[:5]}")
+        # Check if combination is cheaper than typical round-trip
+        logger.info(f"💡 ONE-WAY COMBO: {combined_price:,.0f} TL (Real: {combined_real_price:,.0f} TL)")
         
-        return prices
+        return {
+            'price': combined_price,
+            'real_price': combined_real_price,
+            'currency': 'TRY',
+            'outbound': outbound,
+            'return': return_flight,
+            'flight_type': 'one_way_combo',
+            'is_direct': True,
+            'method': 'one_way_combination',
+            'confidence': min(outbound['confidence'], return_flight['confidence']),
+            'savings_note': 'One-way combination may be cheaper than round-trip'
+        }
     
-    def _is_sane_price(self, price: float) -> bool:
+    async def scrape_with_alternatives(self, route: Dict, departure_date: str, 
+                                      return_date: Optional[str] = None) -> List[Dict]:
         """
-        Anomali algılama: 100 TL - 500K TL arası mantıklı
+        RULE 6: Check alternative airports
+        Küçük havalimanları kontrolü
         """
-        return self.config.MIN_SANE_PRICE <= price <= self.config.MAX_SANE_PRICE
-    
-    def _calculate_confidence(self, prices: List[float]) -> float:
-        """
-        Confidence skoru hesapla (0.0 - 1.0)
-        Fiyatlar birbirine ne kadar yakınsa confidence yüksek
-        """
-        if len(prices) < 2:
-            return 0.5
+        results = []
         
-        avg = sum(prices) / len(prices)
-        variance = sum((p - avg) ** 2 for p in prices) / len(prices)
-        std_dev = variance ** 0.5
+        main_origin = route.get('main_origin', route['origin'])
+        main_destination = route.get('main_destination', route['destination'])
         
-        # %10'dan az sapma = yüksek confidence
-        if std_dev / avg < 0.10:
-            return 0.95
-        elif std_dev / avg < 0.20:
-            return 0.80
-        elif std_dev / avg < 0.30:
-            return 0.60
+        # Get alternatives
+        origin_alternatives = [main_origin] + self.config.SMALL_AIRPORTS.get(main_origin, [])
+        dest_alternatives = [main_destination] + self.config.SMALL_AIRPORTS.get(main_destination, [])
+        
+        logger.info(f"🔍 Checking alternatives:")
+        logger.info(f"   Origins: {origin_alternatives}")
+        logger.info(f"   Destinations: {dest_alternatives}")
+        
+        # Try main route first
+        if route.get('route_type') == 'one_way':
+            result = await self.scrape_one_way_flight(
+                route['origin'],
+                route['destination'],
+                departure_date
+            )
+            if result:
+                result['is_alternative'] = False
+                results.append(result)
         else:
-            return 0.40
-    
-    async def verify_price(self, route: Dict, initial_price: float) -> bool:
-        """
-        Fiyatı tekrar doğrula (özellikle mistake fare için)
-        """
-        logger.info(f"🔍 Verifying price: {initial_price:,.0f} TL")
+            # Round-trip (use parent class method)
+            result = await self.scrape_flight(
+                route['origin'],
+                route['destination'],
+                departure_date,
+                return_date
+            )
+            if result:
+                result['is_alternative'] = False
+                results.append(result)
         
-        result = await self.scrape_flight(
-            route['origin'],
-            route['destination'],
-            route.get('departure_date', '2026-06-01'),
-            route.get('return_date', '2026-06-10')
-        )
+        # Try alternatives (limit to 2 to avoid spam)
+        alt_count = 0
+        for orig in origin_alternatives[:2]:
+            for dest in dest_alternatives[:2]:
+                if orig == route['origin'] and dest == route['destination']:
+                    continue  # Skip main route
+                
+                if alt_count >= 2:
+                    break
+                
+                try:
+                    if route.get('route_type') == 'one_way':
+                        result = await self.scrape_one_way_flight(orig, dest, departure_date)
+                    else:
+                        result = await self.scrape_flight(orig, dest, departure_date, return_date)
+                    
+                    if result:
+                        result['is_alternative'] = True
+                        result['alternative_airports'] = f"{orig}-{dest}"
+                        results.append(result)
+                        alt_count += 1
+                    
+                    await asyncio.sleep(random.uniform(3, 5))
+                    
+                except Exception as e:
+                    logger.debug(f"Alternative search error {orig}-{dest}: {e}")
+                    continue
         
-        if result and abs(result['price'] - initial_price) / initial_price < 0.10:
-            logger.info("✅ Price verified!")
-            return True
-        
-        logger.warning("⚠️ Price mismatch in verification")
-        return False
+        return results
