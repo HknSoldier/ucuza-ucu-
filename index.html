@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🦅 PROJECT TITAN – Flight Intel Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ================================================
+       TITAN DESIGN SYSTEM – Industrial Cyber Dark
+    ================================================ */
+    :root {
+      --bg-void:    #050508;
+      --bg-panel:   #0c0c14;
+      --bg-card:    #111120;
+      --bg-hover:   #191930;
+      --accent:     #00ffc6;
+      --accent-dim: #00ffc620;
+      --accent2:    #ff6b35;
+      --warn:       #ffd23f;
+      --danger:     #ff3860;
+      --text-hi:    #e8e8f0;
+      --text-mid:   #8888aa;
+      --text-lo:    #44445a;
+      --border:     #1e1e35;
+      --border-hi:  #2a2a55;
+      --green:      #22c55e;
+      --font-mono:  'Space Mono', monospace;
+      --font-ui:    'Syne', sans-serif;
+      --glow:       0 0 20px #00ffc640;
+      --glow-sm:    0 0 8px #00ffc630;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg-void);
+      color: var(--text-hi);
+      font-family: var(--font-ui);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Noise texture overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.4;
+    }
+
+    /* Scanline effect */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 255, 198, 0.015) 2px,
+        rgba(0, 255, 198, 0.015) 4px
+      );
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ======================== HEADER ======================== */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 32px 0 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      width: 40%;
+      height: 1px;
+      background: linear-gradient(90deg, var(--accent), transparent);
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .logo-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .logo-tag {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--accent);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 52px);
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1;
+      color: var(--text-hi);
+    }
+
+    h1 span {
+      color: var(--accent);
+      text-shadow: var(--glow);
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-mid);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,198,0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(0,255,198,0); }
+    }
+
+    /* ======================== STATS BAR ======================== */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1px;
+      margin: 32px 0;
+      border: 1px solid var(--border);
+      background: var(--border);
+    }
+
+    .stat-cell {
+      background: var(--bg-panel);
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+
+    .stat-cell:hover { background: var(--bg-hover); }
+
+    .stat-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--text-lo);
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text-hi);
+      line-height: 1;
+    }
+
+    .stat-value.accent { color: var(--accent); text-shadow: var(--glow-sm); }
+    .stat-value.warn { color: var(--warn); }
+    .stat-value.green { color: var(--green); }
+
+    /* ======================== FILTERS ======================== */
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .filter-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-mid);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    select, input[type="text"] {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hi);
+      color: var(--text-hi);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 8px 12px;
+      outline: none;
+      transition: border-color 0.2s;
+      cursor: pointer;
+    }
+
+    select:focus, input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: var(--glow-sm);
+    }
+
+    .btn {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 8px 16px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: var(--accent-dim);
+      box-shadow: var(--glow-sm);
+    }
+
+    .btn.active {
+      background: var(--accent);
+      color: var(--bg-void);
+      font-weight: 700;
+    }
+
+    /* ======================== CARDS ======================== */
+    #flight-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      margin-bottom: 60px;
+    }
+
+    .flight-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.25s;
+      animation: fadeIn 0.4s ease forwards;
+      opacity: 0;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .flight-card:hover {
+      border-color: var(--border-hi);
+      background: var(--bg-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    .flight-card.mistake-fare {
+      border-color: var(--accent);
+      box-shadow: var(--glow);
+    }
+
+    .flight-card.mistake-fare::before {
+      content: '⚡ MISTAKE FARE';
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: var(--accent);
+      color: var(--bg-void);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      padding: 4px 10px;
+      letter-spacing: 1px;
+    }
+
+    .flight-card.below-target:not(.mistake-fare)::before {
+      content: '🎯 HEDEF ALTI';
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: var(--accent2);
+      color: white;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      padding: 4px 10px;
+      letter-spacing: 1px;
+    }
+
+    .card-header {
+      padding: 20px 20px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .route-badge {
+      font-family: var(--font-mono);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-hi);
+      letter-spacing: 1px;
+    }
+
+    .route-arrow {
+      color: var(--accent);
+    }
+
+    .airline-tag {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-mid);
+      background: var(--bg-panel);
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+    }
+
+    .card-body {
+      padding: 16px 20px 20px;
+    }
+
+    .price-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .price-main {
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .price-main.below { color: var(--green); }
+    .price-main.mistake { color: var(--warn); text-shadow: 0 0 12px rgba(255,210,63,0.4); }
+
+    .price-unit {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-mid);
+    }
+
+    .savings-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 2px 8px;
+      border: 1px solid;
+    }
+
+    .savings-badge.green { color: var(--green); border-color: var(--green); }
+    .savings-badge.accent { color: var(--accent); border-color: var(--accent); }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .meta-key {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--text-lo);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .meta-val {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-hi);
+    }
+
+    .visa-chip {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 4px 10px;
+      margin-bottom: 14px;
+      border-left: 2px solid;
+    }
+
+    .visa-chip.ok { border-color: var(--green); color: var(--green); background: rgba(34,197,94,0.08); }
+    .visa-chip.warn { border-color: var(--warn); color: var(--warn); background: rgba(255,210,63,0.08); }
+    .visa-chip.info { border-color: var(--text-lo); color: var(--text-mid); background: transparent; }
+
+    .card-footer {
+      border-top: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .target-info {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-lo);
+    }
+
+    .buy-btn {
+      background: var(--accent);
+      color: var(--bg-void);
+      border: none;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 7px 14px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      text-decoration: none;
+      display: inline-block;
+      transition: all 0.2s;
+    }
+
+    .buy-btn:hover {
+      background: var(--text-hi);
+      box-shadow: 0 0 12px rgba(0,255,198,0.3);
+    }
+
+    /* ======================== EMPTY STATE ======================== */
+    #empty-state {
+      display: none;
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-lo);
+    }
+
+    #empty-state .empty-icon { font-size: 64px; margin-bottom: 16px; }
+    #empty-state p { font-family: var(--font-mono); font-size: 13px; line-height: 1.8; }
+
+    /* ======================== LOADING ======================== */
+    #loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px;
+      gap: 20px;
+    }
+
+    .titan-loader {
+      width: 48px;
+      height: 48px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loader-text {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-mid);
+      letter-spacing: 2px;
+      animation: blink 1.5s steps(1) infinite;
+    }
+
+    @keyframes blink { 50% { opacity: 0.3; } }
+
+    /* ======================== FOOTER ======================== */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 0;
+      text-align: center;
+    }
+
+    .footer-text {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-lo);
+      letter-spacing: 1px;
+    }
+
+    /* ======================== RESPONSIVE ======================== */
+    @media (max-width: 640px) {
+      .stats-bar { grid-template-columns: 1fr 1fr; }
+      #flight-grid { grid-template-columns: 1fr; }
+      .toolbar { flex-direction: column; align-items: flex-start; }
+      .price-main { font-size: 28px; }
+    }
+
+    /* ======================== SCROLLBAR ======================== */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-void); }
+    ::-webkit-scrollbar-thumb { background: var(--border-hi); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+    /* ======================== SELECTION ======================== */
+    ::selection { background: var(--accent); color: var(--bg-void); }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <header>
+    <div class="header-inner">
+      <div class="logo-group">
+        <div class="logo-tag">// v2.3 ENTERPRISE PROD · AUTONOMOUS INTEL</div>
+        <h1>🦅 PROJECT <span>TITAN</span></h1>
+      </div>
+      <div class="status-bar">
+        <div class="status-dot"></div>
+        <span id="status-text">SİSTEM AKTİF · VERİ YÜKLENİYOR</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- STATS BAR -->
+  <div class="stats-bar" id="stats-bar">
+    <div class="stat-cell">
+      <div class="stat-label">// TOPLAM UÇUŞ</div>
+      <div class="stat-value accent" id="stat-total">—</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-label">// HEDEF ALTI</div>
+      <div class="stat-value green" id="stat-below">—</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-label">// MISTAKE FARE</div>
+      <div class="stat-value warn" id="stat-mistake">—</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-label">// EN UCUZ</div>
+      <div class="stat-value" id="stat-cheapest">—</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-label">// SON TARAMA</div>
+      <div class="stat-value" id="stat-updated" style="font-size:14px;color:var(--text-mid)">—</div>
+    </div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <div class="filter-group">
+      <span class="filter-label">Filtre:</span>
+      <button class="btn active" id="btn-all" onclick="filterCards('all')">TÜM UÇUŞLAR</button>
+      <button class="btn" id="btn-below" onclick="filterCards('below')">HEDEF ALTI</button>
+      <button class="btn" id="btn-mistake" onclick="filterCards('mistake')">MISTAKE FARE</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Rota:</span>
+      <select id="route-filter" onchange="applyRouteFilter()">
+        <option value="">TÜM ROTALAR</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Sırala:</span>
+      <select id="sort-select" onchange="applySorting()">
+        <option value="price_asc">Fiyat ↑</option>
+        <option value="price_desc">Fiyat ↓</option>
+        <option value="savings_desc">İndirim ↓</option>
+        <option value="date_asc">Tarih ↑</option>
+      </select>
+    </div>
+    <button class="btn" onclick="loadFlights()">⟳ YENİLE</button>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div id="loading">
+    <div class="titan-loader"></div>
+    <div class="loader-text">VERİ ÇEKİLİYOR...</div>
+  </div>
+
+  <div id="empty-state">
+    <div class="empty-icon">🛰️</div>
+    <p>Henüz uçuş verisi bulunamadı.<br>Sistem 6 saatte bir otomatik olarak tarama yapar.</p>
+  </div>
+
+  <div id="flight-grid"></div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-text">
+      🦅 PROJECT TITAN v2.3 ENTERPRISE · GITHUB ACTIONS · 7/24 OTONOM ÇALIŞIR
+    </div>
+  </footer>
+
+</div>
+
+<script>
+  // ============================================================
+  // DATA & STATE
+  // ============================================================
+  let allFlights = [];
+  let activeFilter = 'all';
+  let activeRoute = '';
+  let activeSort = 'price_asc';
+
+  const SCHENGEN = new Set([
+    'CDG','ORY','AMS','EIN','BCN','MAD','FCO','MXP','LIN',
+    'FRA','MUC','TXL','BER','VIE','PRG','ATH','SKG','LIS',
+    'ARN','GOT','CPH','HEL','OSL','ZUR','GVA','BRU','WAW',
+    'KRK','BUD','SOF','OTP','RIX','TLL','VNO','LJU','SKP'
+  ]);
+  const VISA_WARN = new Set(['LHR','LGW','STN','MAN','JFK','LAX','ORD','MIA','SFO','BOS','IAD','YYZ','YVR']);
+
+  // ============================================================
+  // LOAD DATA
+  // ============================================================
+  async function loadFlights() {
+    document.getElementById('loading').style.display = 'flex';
+    document.getElementById('flight-grid').innerHTML = '';
+    document.getElementById('empty-state').style.display = 'none';
+
+    try {
+      const resp = await fetch('flights.json?t=' + Date.now());
+      if (!resp.ok) throw new Error('flights.json yüklenemedi');
+      const data = await resp.json();
+      allFlights = data.flights || [];
+
+      // Stats güncelle
+      const mistakeCount = allFlights.filter(f => f.is_mistake_fare).length;
+      const belowCount = allFlights.filter(f => f.is_below_target).length;
+      const cheapest = allFlights.length > 0 ? Math.min(...allFlights.map(f => f.price)) : null;
+
+      document.getElementById('stat-total').textContent = allFlights.length;
+      document.getElementById('stat-below').textContent = belowCount;
+      document.getElementById('stat-mistake').textContent = mistakeCount;
+      document.getElementById('stat-cheapest').textContent = cheapest ? formatPrice(cheapest) + ' TL' : '—';
+
+      if (data.last_updated) {
+        const d = new Date(data.last_updated);
+        document.getElementById('stat-updated').textContent = d.toLocaleString('tr-TR');
+        document.getElementById('status-text').textContent =
+          'SİSTEM AKTİF · SON: ' + d.toLocaleString('tr-TR');
+      }
+
+      // Rota filtresini doldur
+      const routes = [...new Set(allFlights.map(f => f.route))].sort();
+      const routeSel = document.getElementById('route-filter');
+      routeSel.innerHTML = '<option value="">TÜM ROTALAR</option>';
+      routes.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r; opt.textContent = r;
+        routeSel.appendChild(opt);
+      });
+
+      renderCards();
+    } catch (err) {
+      console.error(err);
+      document.getElementById('empty-state').style.display = 'block';
+      document.getElementById('status-text').textContent = 'VERİ YÜKLENEMEDİ: ' + err.message;
+    } finally {
+      document.getElementById('loading').style.display = 'none';
+    }
+  }
+
+  // ============================================================
+  // FILTERS & SORT
+  // ============================================================
+  function filterCards(type) {
+    activeFilter = type;
+    ['all','below','mistake'].forEach(t => {
+      document.getElementById('btn-' + t).classList.toggle('active', t === type);
+    });
+    renderCards();
+  }
+
+  function applyRouteFilter() {
+    activeRoute = document.getElementById('route-filter').value;
+    renderCards();
+  }
+
+  function applySorting() {
+    activeSort = document.getElementById('sort-select').value;
+    renderCards();
+  }
+
+  function getFiltered() {
+    let list = [...allFlights];
+    if (activeFilter === 'below') list = list.filter(f => f.is_below_target);
+    if (activeFilter === 'mistake') list = list.filter(f => f.is_mistake_fare);
+    if (activeRoute) list = list.filter(f => f.route === activeRoute);
+
+    list.sort((a, b) => {
+      switch (activeSort) {
+        case 'price_asc': return a.price - b.price;
+        case 'price_desc': return b.price - a.price;
+        case 'savings_desc': return b.savings_pct - a.savings_pct;
+        case 'date_asc': return (a.depart_date || '').localeCompare(b.depart_date || '');
+        default: return 0;
+      }
+    });
+    return list;
+  }
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+  function formatPrice(n) {
+    return n.toLocaleString('tr-TR', { maximumFractionDigits: 0 });
+  }
+
+  function getVisaHTML(dest) {
+    const code = (dest || '').toUpperCase();
+    if (SCHENGEN.has(code)) return '<div class="visa-chip ok">✅ VİZESİZ · Schengen · Yeşil Pasaport</div>';
+    if (VISA_WARN.has(code)) return '<div class="visa-chip warn">⚠️ VİZE GEREKLİ · UK / ABD / Kanada</div>';
+    return '<div class="visa-chip info">ℹ️ Vize durumu kontrol edilmeli</div>';
+  }
+
+  function getFlightsLink(origin, dest, departDate) {
+    return `https://www.google.com/travel/flights?q=${origin}+to+${dest}+${departDate}&curr=TRY`;
+  }
+
+  function renderCards() {
+    const grid = document.getElementById('flight-grid');
+    const empty = document.getElementById('empty-state');
+    const filtered = getFiltered();
+
+    if (filtered.length === 0) {
+      grid.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    grid.innerHTML = filtered.map((f, i) => {
+      const cls = f.is_mistake_fare ? 'mistake-fare' : f.is_below_target ? 'below-target' : '';
+      const priceColor = f.is_mistake_fare ? 'mistake' : f.is_below_target ? 'below' : '';
+      const savingsColor = f.savings_pct > 0 ? 'green' : 'accent';
+      const link = getFlightsLink(f.origin, f.dest, f.depart_date || '');
+
+      return `
+        <div class="flight-card ${cls}" style="animation-delay:${i * 0.04}s">
+          <div class="card-header">
+            <div class="route-badge">${f.origin || '—'} <span class="route-arrow">›</span> ${f.dest || '—'}</div>
+            <div class="airline-tag">${(f.airline || 'N/A').substring(0, 20)}</div>
+          </div>
+          <div class="card-body">
+            <div class="price-row">
+              <div class="price-main ${priceColor}">${formatPrice(f.price)}</div>
+              <div class="price-unit">TL</div>
+              ${f.savings_pct > 0 ? `<div class="savings-badge ${savingsColor}">-%${f.savings_pct}</div>` : ''}
+            </div>
+            <div class="meta-grid">
+              <div class="meta-item">
+                <div class="meta-key">GİDİŞ</div>
+                <div class="meta-val">${f.depart_date || '—'}</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-key">DÖNÜŞ</div>
+                <div class="meta-val">${f.return_date || '—'}</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-key">HEDEF FİYAT</div>
+                <div class="meta-val">${formatPrice(f.target)} TL</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-key">DURAK</div>
+                <div class="meta-val">✈️ DİREKT</div>
+              </div>
+            </div>
+            ${getVisaHTML(f.dest)}
+          </div>
+          <div class="card-footer">
+            <div class="target-info">Hedef: ${formatPrice(f.target)} TL</div>
+            <a href="${link}" target="_blank" rel="noopener" class="buy-btn">⚡ HEMEN AL</a>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ============================================================
+  // INIT
+  // ============================================================
+  document.addEventListener('DOMContentLoaded', loadFlights);
+
+  // Her 5 dakikada otomatik yenile
+  setInterval(loadFlights, 5 * 60 * 1000);
+</script>
+
+</body>
+</html>
