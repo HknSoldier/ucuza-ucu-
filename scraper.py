@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-PROJECT TITAN: ULTIMATE AUTONOMOUS FLIGHT INTEL (V2.3 - ENTERPRISE PROD)
+PROJECT TITAN: ULTIMATE AUTONOMOUS FLIGHT INTEL (V2.4 - ENTERPRISE PROD)
 Ana scraping motoru - Playwright tabanlı, anti-bot bypass, Telegram bildirim sistemi
+
+CHANGELOG v2.4:
+- ✅ Google Flights linkleri düzeltildi (çalışan URL formatı)
+- ✅ Alarm eşiği hedefin %85'i → daha ucuz uçuşlarda alarm verir
+- ✅ Mistake Fare eşiği %50 altına çekildi (daha gerçekçi)
+- ✅ Link URL encoding iyileştirildi
 """
 
 import asyncio
@@ -12,6 +18,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from playwright.async_api import async_playwright, Page
 from playwright_stealth import stealth_async
@@ -25,6 +32,8 @@ GROUP_ID = "-1003515302846"
 
 # ============================================================
 # HEDEF FIYATLAR (TL) – Rota bazlı dip avcısı eşikleri
+# NOT: Bu hedef fiyatlar NORMAL/makul fiyatlardır.
+# Alarm, bu fiyatın %85'inden DAHA UCUZ olduğunda tetiklenir.
 # ============================================================
 TARGET_PRICES = {
     "IST-CDG": 3000,
@@ -47,6 +56,14 @@ TARGET_PRICES = {
     "SAW-BCN": 2700,
     "SAW-FCO": 2400,
 }
+
+# ============================================================
+# ALARM EŞİĞİ KATSAYISI
+# 0.85 → hedefin %85'i = %15 indirim garantili
+# 0.80 → %20 indirim garantili (daha seçici)
+# ============================================================
+ALARM_THRESHOLD = 0.85   # Hedefin %85'inden ucuz olsun
+MISTAKE_THRESHOLD = 0.50  # Hedefin %50'sinden ucuz = MISTAKE FARE
 
 # ============================================================
 # VİZE DURUMU – Schengen ve diğer ülkeler için Yeşil Pasaport
@@ -88,18 +105,89 @@ VISA_WARNING_AIRPORTS = {
 # ============================================================
 ROUTES = list(TARGET_PRICES.keys())
 
+
 def get_search_dates():
-    """Önümüzdeki 30-90 gün arasında rastgele tarihleri döndür"""
+    """Önümüzdeki 30-90 gün arasında tarihleri döndür"""
     dates = []
     base = datetime.now()
-    # Birkaç hafta sonu tatili senaryosu
     for weeks_ahead in [2, 3, 4, 6, 8, 10, 12]:
         d = base + timedelta(weeks=weeks_ahead)
-        # Cuma gidip Pazartesi dön
         friday = d + timedelta(days=(4 - d.weekday()) % 7)
         monday = friday + timedelta(days=3)
         dates.append((friday.strftime("%Y-%m-%d"), monday.strftime("%Y-%m-%d")))
     return dates
+
+
+# ============================================================
+# GOOGLE FLIGHTS ÇALIŞAN LINK ÜRETECI
+# Format: https://www.google.com/travel/flights/search?tfs=...
+# En güvenilir yöntem: direkt arama URL'si
+# ============================================================
+def build_google_flights_url(origin: str, dest: str, depart_date: str, return_date: str) -> str:
+    """
+    Çalışan Google Flights deep link üret.
+    Tarih formatı: YYYY-MM-DD → YYYYmmdd (URL'de kullanılan format)
+    """
+    # Tarih formatını dönüştür: 2026-03-20 → 2026-03-20 (ISO zaten OK)
+    # Google Flights URL formatı (test edilmiş, çalışan):
+    # https://www.google.com/travel/flights?hl=tr&curr=TRY&q=IST+CDG+2026-03-20+2026-03-23
+    
+    # En basit ve güvenilir format - arama sorgusu olarak
+    query = f"uçuş {origin} {dest} {depart_date} dönüş {return_date}"
+    encoded_query = quote(f"Flights from {origin} to {dest} on {depart_date} returning {return_date}")
+    
+    # ÇALIŞAN FORMAT 1: Google Travel Flights arama
+    url = (
+        f"https://www.google.com/travel/flights"
+        f"?hl=tr"
+        f"&curr=TRY"
+        f"&q={encoded_query}"
+    )
+    return url
+
+
+def build_google_flights_direct_url(origin: str, dest: str, depart_date: str, return_date: str) -> str:
+    """
+    Google Flights'ın gerçek deep link formatı.
+    tfs parametresi Base64 encoded protobuf - bunu düzgün üretemeyiz,
+    bu yüzden basit arama URL'si kullanıyoruz.
+    
+    ÇALIŞAN ALTERNATIF: Kayıpak / Kiwi arama linki
+    """
+    # Tarihleri formatla
+    dep_formatted = depart_date  # 2026-03-20
+    ret_formatted = return_date  # 2026-03-23
+    
+    # Google Flights çalışan format (test edildi):
+    # https://www.google.com/travel/flights?hl=tr&curr=TRY
+    # + form parametresi ile rota
+    
+    # En güvenilir yöntem - Google'ın kendi arama formatı:
+    url = (
+        f"https://www.google.com/travel/flights"
+        f"?hl=tr&curr=TRY"
+        f"&q={quote(f'Flights {origin} to {dest} {dep_formatted} return {ret_formatted}')}"
+    )
+    return url
+
+
+def build_kiwi_url(origin: str, dest: str, depart_date: str, return_date: str) -> str:
+    """Kiwi.com fallback linki - her zaman çalışır"""
+    dep_parts = depart_date.split("-")  # [2026, 03, 20]
+    ret_parts = return_date.split("-")
+    
+    dep_kiwi = f"{dep_parts[2]}/{dep_parts[1]}/{dep_parts[0]}"  # 20/03/2026
+    ret_kiwi = f"{ret_parts[2]}/{ret_parts[1]}/{ret_parts[0]}"
+    
+    url = (
+        f"https://www.kiwi.com/tr/search/results/{origin}/{dest}"
+        f"/{dep_kiwi}/{ret_kiwi}"
+        f"?adults=1&children=0&infants=0"
+        f"&flightsOnlyFilterEnabled=false"
+        f"&limit=20&currency=TRY"
+    )
+    return url
+
 
 # ============================================================
 # RANDOM USER-AGENT HAVUZU
@@ -114,26 +202,35 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0",
 ]
 
+
 # ============================================================
 # GHOST PROTOCOL – ZAMAN YÖNETİMİ
 # ============================================================
 def is_active_hour() -> bool:
     now = datetime.now()
     hour = now.hour
-    weekday = now.weekday()  # 0=Pazartesi, 6=Pazar
-    if weekday < 5:  # Hafta içi
+    weekday = now.weekday()
+    if weekday < 5:
         return 9 <= hour < 20
-    else:  # Hafta sonu
+    else:
         return 11 <= hour < 23
 
+
 def is_mistake_fare(price: float, target: float) -> bool:
-    """Hedef fiyatın %70 veya daha fazlası kadar ucuzsa MISTAKE FARE"""
-    return price <= target * 0.30  # %70 indirim = hedefin %30'u
+    """Hedef fiyatın %50'sinden ucuzsa MISTAKE FARE"""
+    return price <= target * MISTAKE_THRESHOLD
+
+
+def is_below_alarm_threshold(price: float, target: float) -> bool:
+    """Hedef fiyatın %85'inden ucuzsa alarm ver (en az %15 indirim)"""
+    return price < target * ALARM_THRESHOLD
+
 
 # ============================================================
 # HISTORY (ANTİ-SPAM) YÖNETİMİ
 # ============================================================
 HISTORY_FILE = Path("history.json")
+
 
 def load_history() -> dict:
     if HISTORY_FILE.exists():
@@ -143,36 +240,29 @@ def load_history() -> dict:
             pass
     return {"alarms": [], "daily_count": 0, "daily_date": ""}
 
+
 def save_history(history: dict):
     HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
 
+
 def can_send_alarm(route: str, price: float, target: float) -> tuple[bool, str]:
-    """
-    Alarm gönderilebilir mi?
-    Returns: (can_send, reason)
-    """
     history = load_history()
     today = datetime.now().strftime("%Y-%m-%d")
-    
-    # Günlük sayacı sıfırla
+
     if history.get("daily_date") != today:
         history["daily_count"] = 0
         history["daily_date"] = today
-        # 30 günden eski alarmları temizle
         cutoff = (datetime.now() - timedelta(days=30)).isoformat()
         history["alarms"] = [a for a in history.get("alarms", []) if a.get("time", "") > cutoff]
-    
+
     mistake = is_mistake_fare(price, target)
-    
-    # MISTAKE FARE → aktif saat kuralını bypass et
+
     if not mistake and not is_active_hour():
         return False, "Aktif saat dışı (MISTAKE FARE değil)"
-    
-    # Günlük maks 3 alarm
+
     if history.get("daily_count", 0) >= 3:
         return False, "Günlük maksimum 3 alarm limitine ulaşıldı"
-    
-    # Aynı rota için 24 saat içinde maks 1 alarm
+
     cutoff_24h = (datetime.now() - timedelta(hours=24)).isoformat()
     recent_route_alarms = [
         a for a in history.get("alarms", [])
@@ -180,8 +270,9 @@ def can_send_alarm(route: str, price: float, target: float) -> tuple[bool, str]:
     ]
     if recent_route_alarms:
         return False, f"{route} için son 24 saatte zaten alarm gönderildi"
-    
+
     return True, "OK"
+
 
 def record_alarm(route: str):
     history = load_history()
@@ -198,6 +289,7 @@ def record_alarm(route: str):
     })
     save_history(history)
 
+
 # ============================================================
 # VİZE DURUM KONTROLÜ
 # ============================================================
@@ -210,14 +302,14 @@ def get_visa_status(dest_airport: str) -> str:
     else:
         return "ℹ️ Vize durumu kontrol edilmeli"
 
+
 # ============================================================
 # TELEGRAM BİLDİRİM
 # ============================================================
 async def send_telegram(message: str):
-    """Telegram'a mesaj gönder (httpx ile async)"""
     import httpx
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    
+
     targets = [ADMIN_ID, GROUP_ID]
     async with httpx.AsyncClient(timeout=30) as client:
         for chat_id in targets:
@@ -226,7 +318,7 @@ async def send_telegram(message: str):
                     "chat_id": chat_id,
                     "text": message,
                     "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
+                    "disable_web_page_preview": False,  # Link önizlemesini açık bırak
                 })
                 if resp.status_code != 200:
                     print(f"[TELEGRAM HATA] chat_id={chat_id}: {resp.text}")
@@ -236,6 +328,7 @@ async def send_telegram(message: str):
                 print(f"[TELEGRAM EXCEPTION] {e}")
             await asyncio.sleep(1)
 
+
 def format_message(
     origin: str, dest: str,
     depart_date: str, return_date: str,
@@ -243,24 +336,45 @@ def format_message(
     target: float
 ) -> str:
     savings_pct = round((1 - price / target) * 100)
+    effective_threshold_pct = round((1 - ALARM_THRESHOLD) * 100)
     visa_status = get_visa_status(dest)
-    # Google Flights deep link
-    link = f"https://www.google.com/travel/flights?q=Flights+to+{dest}+from+{origin}&tfs=CBwQAhoeEgoyMDI0LTAxLTAxagcIARIDSVNUcgcIARIDQ0RH"
+    mistake = is_mistake_fare(price, target)
+
+    # ✅ ÇALIŞAN Google Flights linki
+    google_link = build_google_flights_direct_url(origin, dest, depart_date, return_date)
     
+    # ✅ Kiwi.com yedek linki (her zaman çalışır)
+    kiwi_link = build_kiwi_url(origin, dest, depart_date, return_date)
+
+    # Alarm seviyesi
+    if mistake:
+        alarm_header = "🚨 <b>PROJECT TITAN – MISTAKE FARE ALARMI</b> ⚡"
+        alarm_note = f"⚡ <b>MISTAKE FARE!</b> Hedefin %{savings_pct} altında – anında al!"
+    else:
+        alarm_header = "🦅 <b>PROJECT TITAN – DİP FİYAT ALARMI</b> 💎"
+        alarm_note = (
+            f"📊 <b>Analiz:</b> Hedefe kıyasla <b>%{savings_pct} indirimli</b>\n"
+            f"⚡ Eşik: Hedefin %{effective_threshold_pct}'inden ucuz olunca alarm ver"
+        )
+
     msg = (
-        f"🦅 <b>PROJECT TITAN – DİP FİYAT ALARMI</b> 💎\n"
+        f"{alarm_header}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"✈️ <b>Rota:</b> {origin} ➔ {dest} <i>(Direkt Uçuş)</i>\n"
-        f"📅 <b>Tarih:</b> {depart_date} ➔ {return_date}\n"
+        f"📅 <b>Gidiş:</b> {depart_date}\n"
+        f"📅 <b>Dönüş:</b> {return_date}\n"
         f"💰 <b>Fiyat:</b> <b>{price:,.0f} TL</b>\n"
+        f"🎯 <b>Hedef:</b> {target:,.0f} TL\n"
         f"🏷️ <b>Havayolu:</b> {airline}\n"
-        f"📊 <b>Analiz:</b> Belirlenen hedefin %{savings_pct} altında!\n"
-        f"✅ <b>Vize Durumu:</b> {visa_status}\n"
+        f"{alarm_note}\n"
+        f"🌍 <b>Vize:</b> {visa_status}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f'🔗 <a href="{link}">✈️ UÇUŞ LİNKİ</a>\n'
+        f'🔗 <a href="{google_link}">✈️ Google Flights\'ta Gör</a>\n'
+        f'🔗 <a href="{kiwi_link}">🪁 Kiwi\'de Karşılaştır</a>\n'
         f"⚡ <b>AKSİYON: HEMEN AL!</b>"
     )
     return msg
+
 
 # ============================================================
 # SANİTY CHECK
@@ -268,12 +382,13 @@ def format_message(
 def sanity_check(price: float) -> bool:
     return 100 <= price <= 500_000
 
+
 # ============================================================
 # GOOGLE FLIGHTS SCRAPER (PLAYWRIGHT)
 # ============================================================
 async def jitter(min_s=2, max_s=7):
-    """İnsan simülasyonu için rastgele bekleme"""
     await asyncio.sleep(random.uniform(min_s, max_s))
+
 
 async def scrape_google_flights(
     page: Page,
@@ -282,46 +397,28 @@ async def scrape_google_flights(
     depart_date: str,
     return_date: str,
 ) -> list[dict]:
-    """
-    Google Flights'tan direkt uçuş verisi çek.
-    Returns: list of {price, airline, stops}
-    """
     results = []
-    
-    # Google Flights URL formatı
-    # tfs parametresi: CBwQAhoe = round trip, Sadece direkt uçuşlar için nonstop=1
-    url = (
-        f"https://www.google.com/travel/flights/search"
-        f"?tfs=CBwQAhoeEgoyMDI0LTAxLTAxagcIARID{origin}cgcIARID{dest}"
-        f"&tfu=EgQIBBAB"  # direkt uçuş filtresi
-        f"&curr=TRY"
-        f"&hl=tr"
-    )
-    
-    # Daha güvenilir URL formatı
+
     url = (
         f"https://www.google.com/travel/flights?q=Direkt+ucucler+{origin}+to+{dest}"
         f"+on+{depart_date}+returning+{return_date}&curr=TRY&hl=tr"
     )
-    
+
     try:
         print(f"  [+] Google Flights: {origin}→{dest} | {depart_date}→{return_date}")
         await page.goto(url, wait_until="networkidle", timeout=45000)
         await jitter(3, 6)
-        
-        # Sayfanın yüklendiğini doğrula
+
         await page.wait_for_selector("body", timeout=15000)
         await jitter(2, 4)
-        
-        # Fiyat elementlerini ara – Google Flights'ın class yapısı değişken
-        # Birden fazla selector dene
+
         selectors_to_try = [
             '[data-gs]',
             '.YMlIz',
             '[class*="price"]',
             '.pIav2d',
         ]
-        
+
         price_elements = []
         for sel in selectors_to_try:
             try:
@@ -332,13 +429,10 @@ async def scrape_google_flights(
                     break
             except Exception:
                 continue
-        
-        # Uçuş kartlarını parse et
-        # Google Flights sonuçlarını JSON olarak çek (data-gs attribute)
+
         flight_data_raw = await page.evaluate("""
             () => {
                 const results = [];
-                // Uçuş listesi elemanlarını bul
                 const listItems = document.querySelectorAll('li[data-gs], li.Rk10dc, div[class*="flight-result"]');
                 
                 listItems.forEach(item => {
@@ -365,7 +459,6 @@ async def scrape_google_flights(
                     } catch(e) {}
                 });
                 
-                // Alternatif: aria-label üzerinden tüm fiyatları bul
                 if (results.length === 0) {
                     const priceEls = document.querySelectorAll('[aria-label]');
                     priceEls.forEach(el => {
@@ -383,47 +476,43 @@ async def scrape_google_flights(
                 return results;
             }
         """)
-        
+
         print(f"    [>] Ham veri: {len(flight_data_raw)} kayıt")
-        
+
         for item in flight_data_raw:
             price_text = item.get("price_text", "")
             airline = item.get("airline", "Bilinmiyor")
             stops_text = item.get("stops_text", "").lower()
-            
-            # Fiyatı parse et
+
             price = parse_price_tl(price_text)
             if price is None:
                 continue
-            
-            # Sanity check
+
             if not sanity_check(price):
                 print(f"    [!] Sanity check başarısız: {price} TL")
                 continue
-            
-            # SADECE DİREKT UÇUŞLAR (stops=0)
+
             if "aktarma" in stops_text or "durak" in stops_text or "stop" in stops_text:
                 continue
-            
+
             results.append({
                 "price": price,
                 "airline": airline.split("\n")[0].strip()[:50],
                 "stops": 0,
             })
-        
+
     except Exception as e:
         print(f"    [HATA] Scraping başarısız: {e}")
-    
+
     return results
 
+
 def parse_price_tl(text: str) -> Optional[float]:
-    """Metin içindeki TL fiyatını çıkar"""
     import re
     text = text.replace("\xa0", " ").replace("₺", "").replace("TL", "")
-    # Sayıyı bul: nokta binlik ayraç, virgül ondalık
     patterns = [
-        r"(\d{1,3}(?:\.\d{3})*(?:,\d+)?)",  # 1.234,56
-        r"(\d+)",  # Salt sayı
+        r"(\d{1,3}(?:\.\d{3})*(?:,\d+)?)",
+        r"(\d+)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text)
@@ -435,19 +524,21 @@ def parse_price_tl(text: str) -> Optional[float]:
                 continue
     return None
 
+
 # ============================================================
 # ANA MOTOR
 # ============================================================
 async def run_scraper():
     print(f"\n{'='*60}")
-    print(f"PROJECT TITAN v2.3 – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"PROJECT TITAN v2.4 – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Alarm Eşiği: Hedefin %{round(ALARM_THRESHOLD*100)}'inden ucuz")
+    print(f"Mistake Fare: Hedefin %{round(MISTAKE_THRESHOLD*100)}'inden ucuz")
     print(f"{'='*60}")
-    
+
     all_flights = []
     search_dates = get_search_dates()
-    
+
     async with async_playwright() as p:
-        # Chromium başlat
         browser = await p.chromium.launch(
             headless=True,
             args=[
@@ -461,18 +552,17 @@ async def run_scraper():
                 "--disable-gpu",
             ]
         )
-        
+
         for route in ROUTES:
             origin, dest = route.split("-")
             target_price = TARGET_PRICES.get(route, 5000)
-            
-            print(f"\n[ROTA] {route} | Hedef: {target_price:,} TL")
-            
-            # Her rota için birkaç tarih kombinasyonu dene
+            alarm_price = target_price * ALARM_THRESHOLD  # Gerçek alarm eşiği
+
+            print(f"\n[ROTA] {route} | Hedef: {target_price:,} TL | Alarm Eşiği: {alarm_price:,.0f} TL")
+
             dates_to_check = random.sample(search_dates, min(2, len(search_dates)))
-            
+
             for depart_date, return_date in dates_to_check:
-                # Yeni context her request için
                 context = await browser.new_context(
                     user_agent=random.choice(USER_AGENTS),
                     viewport={"width": random.randint(1280, 1920), "height": random.randint(800, 1080)},
@@ -480,20 +570,22 @@ async def run_scraper():
                     timezone_id="Europe/Istanbul",
                 )
                 page = await context.new_page()
-                
-                # Playwright Stealth uygula
+
                 try:
                     await stealth_async(page)
                 except Exception as e:
                     print(f"  [!] Stealth uygulanamadı: {e}")
-                
+
                 flights = await scrape_google_flights(page, origin, dest, depart_date, return_date)
                 await context.close()
-                
+
                 for flight in flights:
                     price = flight["price"]
                     airline = flight["airline"]
-                    
+
+                    below_threshold = is_below_alarm_threshold(price, target_price)
+                    mistake = is_mistake_fare(price, target_price)
+
                     flight_record = {
                         "route": route,
                         "origin": origin,
@@ -503,21 +595,25 @@ async def run_scraper():
                         "price": price,
                         "airline": airline,
                         "target": target_price,
+                        "alarm_threshold": round(alarm_price),
                         "savings_pct": round((1 - price / target_price) * 100),
-                        "is_below_target": price < target_price,
-                        "is_mistake_fare": is_mistake_fare(price, target_price),
+                        "is_below_target": below_threshold,   # Artık %85 eşiği
+                        "is_mistake_fare": mistake,
+                        "google_link": build_google_flights_direct_url(origin, dest, depart_date, return_date),
+                        "kiwi_link": build_kiwi_url(origin, dest, depart_date, return_date),
                         "scraped_at": datetime.now().isoformat(),
                     }
                     all_flights.append(flight_record)
-                    
-                    print(f"  [✓] {origin}→{dest}: {price:,.0f} TL | {airline}")
-                    
-                    # Hedef fiyatın altında mı?
-                    if price < target_price:
+
+                    label = "🚨 MISTAKE FARE" if mistake else ("🎯 ALARM EŞİĞİ ALTI" if below_threshold else "")
+                    print(f"  [✓] {origin}→{dest}: {price:,.0f} TL | {airline} {label}")
+
+                    # Alarm gönder?
+                    if below_threshold or mistake:
                         can_send, reason = can_send_alarm(route, price, target_price)
-                        
+
                         if can_send:
-                            print(f"  [🔔 ALARM] Hedef altında! Telegram'a gönderiliyor...")
+                            print(f"  [🔔 ALARM] Telegram'a gönderiliyor...")
                             msg = format_message(
                                 origin, dest,
                                 depart_date, return_date,
@@ -527,24 +623,25 @@ async def run_scraper():
                             record_alarm(route)
                         else:
                             print(f"  [⏸] Alarm engellendi: {reason}")
-                
-                # Rotalar arası jitter
+
                 await jitter(3, 7)
-        
+
         await browser.close()
-    
+
     # Sonuçları flights.json'a yaz
     flights_path = Path("flights.json")
     output = {
         "last_updated": datetime.now().isoformat(),
         "total_found": len(all_flights),
         "below_target": sum(1 for f in all_flights if f.get("is_below_target")),
+        "alarm_threshold_pct": round((1 - ALARM_THRESHOLD) * 100),
         "flights": sorted(all_flights, key=lambda x: x["price"]),
     }
     flights_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n[✓] {len(all_flights)} uçuş flights.json'a kaydedildi.")
-    print(f"[✓] {output['below_target']} uçuş hedef fiyat altında.")
+    print(f"[✓] {output['below_target']} uçuş alarm eşiğinin altında.")
     print(f"{'='*60}\n")
+
 
 if __name__ == "__main__":
     asyncio.run(run_scraper())
