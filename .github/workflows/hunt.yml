@@ -30,28 +30,18 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      # 3. Bağımlılıkları kur
-      - name: 📦 Bağımlılıkları Kur
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      # 4. Playwright browser'larını kur
-      - name: 🎭 Playwright Chromium Kur
-        run: |
-          playwright install chromium
-          playwright install-deps chromium
-
-      # 5. Sistem bağımlılıkları (anti-bot bypass için)
-      - name: 🔧 Sistem Bağımlılıkları
+      # 3. Sistem bağımlılıkları (Playwright'tan ÖNCE kurulmalı — Ubuntu 24.04 uyumlu)
+      - name: 🔧 Sistem Bağımlılıkları (Ubuntu 24.04)
         run: |
           sudo apt-get update -q
+          # Ubuntu 24.04'te libasound2 → libasound2t64 olarak yeniden adlandırıldı
+          # libasound2 sanal paket olduğundan doğrudan provider'ları kuruyoruz
           sudo apt-get install -y -q \
             libnss3 \
             libnspr4 \
-            libatk1.0-0 \
-            libatk-bridge2.0-0 \
-            libcups2 \
+            libatk1.0-0t64 \
+            libatk-bridge2.0-0t64 \
+            libcups2t64 \
             libdrm2 \
             libxkbcommon0 \
             libxcomposite1 \
@@ -60,9 +50,39 @@ jobs:
             libxrandr2 \
             libgbm1 \
             libasound2t64 \
+            libpango-1.0-0 \
+            libpangocairo-1.0-0 \
+            libcairo2 \
+            libgdk-pixbuf-2.0-0 \
             fonts-liberation \
             fonts-noto \
+            xvfb \
+            2>/dev/null || \
+          sudo apt-get install -y -q \
+            libnss3 \
+            libnspr4 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libgbm1 \
+            fonts-liberation \
+            xvfb \
             --fix-missing || true
+
+      # 4. Bağımlılıkları kur
+      - name: 📦 Python Bağımlılıkları Kur
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 5. Playwright browser'ını kur (deps olmadan — manuel kuruldu)
+      - name: 🎭 Playwright Chromium Kur
+        run: |
+          # --with-deps yerine sadece browser indir; sistem paketleri yukarıda kuruldu
+          playwright install chromium
 
       # 6. Mevcut state dosyalarını restore et (varsa)
       - name: 📂 State Dosyaları Kontrol
