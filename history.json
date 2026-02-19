@@ -11,8 +11,16 @@
     {
       "route": "IST-AMS",
       "time": "2026-02-18T12:29:53.434090"
+    },
+    {
+      "route": "IST-JFK",
+      "time": "2026-02-19T05:01:40.828187"
+    },
+    {
+      "route": "IST-LAX",
+      "time": "2026-02-19T05:02:18.430490"
     }
   ],
-  "daily_count": 3,
-  "daily_date": "2026-02-18"
+  "daily_count": 2,
+  "daily_date": "2026-02-19"
 }
