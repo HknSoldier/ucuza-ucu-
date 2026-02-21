@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-PROJECT TITAN v4.0 – Google Flights Playwright Scraper
-Tüm fiyat verisi doğrudan Google Flights'tan çekilir.
-API key yok, fallback yok, sadece gerçek tarama.
+PROJECT TITAN v5.0 – Google Flights Internal API
+Browser yok, CAPTCHA yok. Google Flights sayfası HTTP GET ile çekilir,
+HTML içindeki gömülü JSON veri blokları parse edilir.
 """
 
 import asyncio
 import json
-import random
 import re
+import random
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+import httpx
 
 # ============================================================
 # GLOBAL KİMLİK BİLGİLERİ
@@ -26,622 +26,318 @@ GROUP_ID  = "-1003515302846"
 # HEDEF FİYATLAR (TL)
 # ============================================================
 TARGET_PRICES = {
-    "IST-CDG": 3000,
-    "IST-LHR": 3200,
-    "IST-AMS": 2800,
-    "IST-BCN": 2900,
-    "IST-FCO": 2600,
-    "IST-MAD": 3100,
-    "IST-FRA": 2700,
-    "IST-MUC": 2500,
-    "IST-VIE": 2400,
-    "IST-PRG": 2600,
-    "IST-ATH": 1800,
-    "IST-DXB": 2200,
-    "IST-JFK": 18000,
-    "IST-LAX": 20000,
-    "SAW-CDG": 2800,
-    "SAW-LHR": 3000,
-    "SAW-AMS": 2600,
-    "SAW-BCN": 2700,
-    "SAW-FCO": 2400,
+    "IST-CDG": 3000, "IST-LHR": 3200, "IST-AMS": 2800,
+    "IST-BCN": 2900, "IST-FCO": 2600, "IST-MAD": 3100,
+    "IST-FRA": 2700, "IST-MUC": 2500, "IST-VIE": 2400,
+    "IST-PRG": 2600, "IST-ATH": 1800, "IST-DXB": 2200,
+    "IST-JFK": 18000, "IST-LAX": 20000,
+    "SAW-CDG": 2800, "SAW-LHR": 3000, "SAW-AMS": 2600,
+    "SAW-BCN": 2700, "SAW-FCO": 2400,
 }
 
-ALARM_THRESHOLD   = 0.85   # Hedefin %85'i altı → alarm
-MISTAKE_THRESHOLD = 0.50   # Hedefin %50'si altı → MISTAKE FARE
-
+ALARM_THRESHOLD   = 0.85
+MISTAKE_THRESHOLD = 0.50
 ROUTES = list(TARGET_PRICES.keys())
 
 # ============================================================
-# VİZE DURUMU
+# VİZE
 # ============================================================
-SCHENGEN_AIRPORTS = {
-    "CDG","ORY","AMS","EIN","BCN","MAD","FCO","MXP","LIN",
-    "FRA","MUC","TXL","BER","VIE","PRG","ATH","SKG","LIS",
-    "ARN","GOT","CPH","HEL","OSL","ZUR","GVA","BRU","WAW",
-    "KRK","BUD","SOF","OTP","RIX","TLL","VNO","LJU","SKP"
-}
-VISA_WARNING_AIRPORTS = {
-    "LHR","LGW","STN","MAN",
-    "JFK","LAX","ORD","MIA","SFO","BOS","IAD",
-    "YYZ","YVR",
-}
+SCHENGEN = {"CDG","ORY","AMS","EIN","BCN","MAD","FCO","MXP","LIN","FRA","MUC",
+            "TXL","BER","VIE","PRG","ATH","SKG","LIS","ARN","GOT","CPH","HEL",
+            "OSL","ZUR","GVA","BRU","WAW","KRK","BUD","SOF","OTP","RIX","TLL","VNO","LJU","SKP"}
+VISA_WARN = {"LHR","LGW","STN","MAN","JFK","LAX","ORD","MIA","SFO","BOS","IAD","YYZ","YVR"}
 
-def get_visa_status(dest: str) -> str:
-    code = dest.upper()
-    if code in SCHENGEN_AIRPORTS:
-        return "✅ VİZESİZ (Schengen – Yeşil Pasaport)"
-    elif code in VISA_WARNING_AIRPORTS:
-        return "⚠️ VİZE GEREKLİ (UK/ABD/Kanada)"
+def get_visa_status(dest):
+    if dest.upper() in SCHENGEN: return "✅ VİZESİZ (Schengen – Yeşil Pasaport)"
+    if dest.upper() in VISA_WARN: return "⚠️ VİZE GEREKLİ (UK/ABD/Kanada)"
     return "ℹ️ Vize durumu kontrol edilmeli"
 
 # ============================================================
-# ARAMA TARİHLERİ
+# TARİHLER
 # ============================================================
 def get_search_dates():
-    """Önümüzdeki haftalardan Cuma-Pazartesi tarihleri üret"""
     dates = []
     base = datetime.now()
-    for weeks_ahead in [2, 3, 4, 5, 6, 8, 10, 12, 14, 16]:
-        d = base + timedelta(weeks=weeks_ahead)
-        days_to_friday = (4 - d.weekday()) % 7
-        friday = d + timedelta(days=days_to_friday)
-        monday = friday + timedelta(days=3)
-        dates.append((friday.strftime("%Y-%m-%d"), monday.strftime("%Y-%m-%d")))
+    for w in [2, 3, 4, 5, 6, 8, 10, 12, 14, 16]:
+        d = base + timedelta(weeks=w)
+        fri = d + timedelta(days=(4 - d.weekday()) % 7)
+        mon = fri + timedelta(days=3)
+        dates.append((fri.strftime("%Y-%m-%d"), mon.strftime("%Y-%m-%d")))
     return dates
 
-# ============================================================
-# GOOGLE FLIGHTS URL
-# ============================================================
-def build_google_flights_url(origin: str, dest: str, depart_date: str, return_date: str) -> str:
-    """
-    Google Flights round-trip arama URL'si.
-    tfs parametresi: CBwQAhopag0IAxIJL20vMDJwdGpkEgoyMDI2LTA1LTE2cgwIAxIIL20vMDQ2NjUSCjIwMjYtMDUtMTk
-    Bunun yerine daha basit query string format kullanıyoruz.
-    """
-    return (
-        f"https://www.google.com/travel/flights"
-        f"?hl=tr&curr=TRY"
-        f"&q=Flights+from+{origin}+to+{dest}"
-        f"+{depart_date}+returning+{return_date}"
-    )
-
-def build_google_flights_scrape_url(origin: str, dest: str, depart_date: str, return_date: str) -> str:
-    """
-    Google Flights direkt URL formatı - tarama için kullanılır.
-    /travel/flights/search/ endpoint'i sonuçları daha hızlı yükler.
-    """
-    dep_fmt = depart_date   # YYYY-MM-DD
-    ret_fmt = return_date
-    return (
-        f"https://www.google.com/travel/flights/search"
-        f"?tfs=CBwQAhoqag0IAxIJ"
-        f"&hl=tr"
-        f"&curr=TRY"
-        f"&gl=TR"
-        f"&q={origin}+to+{dest}+{dep_fmt}+{ret_fmt}"
-        f"&nonstop=1"
-    )
+def build_google_flights_url(origin, dest, dep, ret):
+    return f"https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR&q={origin}+to+{dest}+{dep}+{ret}"
 
 # ============================================================
-# FİYAT ÇEKME FONKSİYONU – Google Flights Playwright
+# HTTP FETCH
 # ============================================================
-async def scrape_google_flights(
-    origin: str,
-    dest: str,
-    depart_date: str,
-    return_date: str,
-    page,
-) -> list[dict]:
-    """
-    Google Flights'tan fiyat çek.
-    Döndürür: [{"price": float, "airline": str, "stops": int}]
-    """
+UAS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+]
+
+async def fetch_google_flights(origin, dest, dep_date, ret_date, client):
     results = []
+    url = f"https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR&q={origin}+to+{dest}+{dep_date}+{ret_date}&nonstop=1"
 
-    # URL: Google Flights round-trip, direkt uçuş, TRY para birimi
-    dep_d = datetime.strptime(depart_date, "%Y-%m-%d")
-    ret_d = datetime.strptime(return_date, "%Y-%m-%d")
-    dep_str = dep_d.strftime("%Y-%m-%d")
-    ret_str = ret_d.strftime("%Y-%m-%d")
-
-    url = (
-        f"https://www.google.com/travel/flights"
-        f"?hl=tr&curr=TRY&gl=TR"
-        f"&q={origin}+to+{dest}+{dep_str}+{ret_str}"
-    )
+    headers = {
+        "User-Agent": random.choice(UAS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Cache-Control": "no-cache",
+    }
 
     try:
-        print(f"    [GF] Sayfa yükleniyor: {origin}→{dest} {dep_str}")
-        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        print(f"    [GF] {origin}->{dest} {dep_date} sorgulanıyor...")
+        resp = await client.get(url, headers=headers, timeout=30.0)
+        print(f"    [GF] HTTP {resp.status_code} | {len(resp.text):,} karakter")
 
-        # Captcha / reCAPTCHA kontrolü
-        content = await page.content()
-        if "captcha" in content.lower() or "unusual traffic" in content.lower():
-            print(f"    [GF] ⚠️ CAPTCHA tespit edildi, atlanıyor.")
-            return []
+        if resp.status_code != 200:
+            return results
 
-        # Sayfanın uçuş sonuçlarını yüklemesi için bekle
-        # Google Flights'ta uçuş kartları birkaç farklı selector'da olabilir
-        selectors_to_try = [
-            '[data-gs]',           # Uçuş sonuç kartları
-            '.YMlIz',              # Fiyat elementi
-            '[jsname="IWWDBc"]',   # Sonuç listesi container
-            'div[role="listitem"]', # Liste öğeleri
-        ]
+        html = resp.text
 
-        loaded = False
-        for sel in selectors_to_try:
-            try:
-                await page.wait_for_selector(sel, timeout=15000)
-                loaded = True
-                print(f"    [GF] Sonuçlar yüklendi (selector: {sel})")
-                break
-            except PWTimeout:
-                continue
+        if any(x in html.lower() for x in ["captcha", "unusual traffic", "/sorry/"]):
+            print(f"    [GF] ⚠️ Bot tespiti")
+            return results
 
-        if not loaded:
-            print(f"    [GF] Sonuç yüklenemedi, sayfa kaydırılıyor...")
-            await page.evaluate("window.scrollTo(0, 500)")
-            await asyncio.sleep(3)
-
-        # Sayfanın HTML içeriğini al
-        html = await page.content()
-
-        # ---- YÖNTEM 1: data-gs attribute'lu kartlardan fiyat çek ----
-        prices_found = []
-
-        # TRY fiyatlarını regex ile bul: ₺1.234 veya TRY 1.234 formatı
-        # Google Flights Türkçe'de ₺ kullanır
-        price_patterns = [
-            r'₺\s*([\d.,]+)',
-            r'TRY\s*([\d.,]+)',
-            r'"price"[^"]*"([\d]+)"',
-        ]
-
-        for pattern in price_patterns:
-            matches = re.findall(pattern, html)
-            for m in matches:
-                try:
-                    # Türkçe format: 1.234 (nokta = binler ayırıcı)
-                    clean = m.replace(".", "").replace(",", ".")
-                    price = float(clean)
-                    if 500 <= price <= 200000:  # Makul aralık
-                        prices_found.append(price)
-                except ValueError:
-                    continue
-
-        # Airline isimlerini çek
-        airline_patterns = [
-            r'"carrierName":"([^"]+)"',
-            r'aria-label="([A-Za-zÇçĞğİıÖöŞşÜü\s]+) uçuşu',
-            r'class="h1fkLb"[^>]*>([^<]+)<',
-        ]
-
-        airlines_found = []
-        for pattern in airline_patterns:
-            matches = re.findall(pattern, html)
-            for m in matches:
-                name = m.strip()
-                if 2 < len(name) < 50 and not any(c.isdigit() for c in name):
-                    airlines_found.append(name)
-
-        # Benzersiz fiyatları al, en ucuzdan sırala
-        prices_found = sorted(list(set(prices_found)))[:5]
-
-        if prices_found:
-            print(f"    [GF ✓] {len(prices_found)} fiyat bulundu: {[f'{p:,.0f}₺' for p in prices_found[:3]]}")
-            for i, price in enumerate(prices_found[:3]):
-                airline = airlines_found[i] if i < len(airlines_found) else "Çeşitli"
-                results.append({
-                    "price": price,
-                    "airline": airline,
-                    "stops": 0,
-                    "source": "google_flights",
-                })
+        prices = extract_prices(html)
+        if prices:
+            print(f"    [GF ✓] Bulunan fiyatlar: {[f'{p:,.0f}₺' for p in prices[:5]]}")
+            for p in prices[:3]:
+                results.append({"price": p, "airline": "Çeşitli", "stops": 0, "source": "google_flights"})
         else:
-            print(f"    [GF] Fiyat bulunamadı, alternatif yöntem deneniyor...")
+            print(f"    [GF] Fiyat parse edilemedi")
+            # Debug - içeriğe bak
+            if "google" in html.lower():
+                print(f"    [GF DEBUG] Google sayfası döndü ama fiyat yok")
+            else:
+                print(f"    [GF DEBUG] Beklenmedik yanıt: {html[:100]}")
 
-            # ---- YÖNTEM 2: Playwright evaluate ile DOM'dan veri çek ----
-            try:
-                flight_data = await page.evaluate("""
-                    () => {
-                        const results = [];
-                        // Fiyat elementlerini bul
-                        const priceEls = document.querySelectorAll('[data-gs], .YMlIz, [jsname="IWWDBc"] [class*="price"]');
-                        priceEls.forEach(el => {
-                            const text = el.innerText || el.textContent || '';
-                            // ₺ içeren kısmı bul
-                            const match = text.match(/[₺]\s*([\d.,]+)/);
-                            if (match) {
-                                results.push({
-                                    priceText: match[0],
-                                    fullText: text.substring(0, 200)
-                                });
-                            }
-                        });
-                        return results.slice(0, 10);
-                    }
-                """)
-
-                for item in flight_data:
-                    pt = item.get("priceText", "")
-                    m = re.search(r'[\d.,]+', pt)
-                    if m:
-                        try:
-                            price = float(m.group().replace(".", "").replace(",", "."))
-                            if 500 <= price <= 200000:
-                                results.append({
-                                    "price": price,
-                                    "airline": "Çeşitli",
-                                    "stops": 0,
-                                    "source": "google_flights_dom",
-                                })
-                        except ValueError:
-                            pass
-
-                if results:
-                    print(f"    [GF DOM ✓] {len(results)} fiyat bulundu")
-                else:
-                    print(f"    [GF] DOM yöntemi de boş döndü")
-
-            except Exception as e:
-                print(f"    [GF DOM HATA] {e}")
-
-    except PWTimeout:
-        print(f"    [GF TIMEOUT] {origin}→{dest} {dep_str} zaman aşımı")
     except Exception as e:
         print(f"    [GF HATA] {e}")
 
     return results
 
 
+def extract_prices(html):
+    """Google Flights HTML'inden TRY fiyatlarını çıkar."""
+    found = set()
+
+    # Yöntem 1: ₺ sembolünden sonra gelen sayılar
+    for m in re.finditer(r'₺\s*(\d[\d.]*)', html):
+        try:
+            price = float(m.group(1).replace(".", "").replace(",", ""))
+            if 500 <= price <= 200000:
+                found.add(price)
+        except ValueError:
+            pass
+
+    # Yöntem 2: "TRY" ile birlikte geçen sayılar (JSON içinde)
+    for m in re.finditer(r'"(\d{4,6})"\s*,\s*"TRY"', html):
+        try:
+            found.add(float(m.group(1)))
+        except ValueError:
+            pass
+
+    for m in re.finditer(r'"TRY"\s*,\s*(\d{4,6})\b', html):
+        try:
+            found.add(float(m.group(1)))
+        except ValueError:
+            pass
+
+    # Yöntem 3: Google'ın data array formatı - [null,null,PRICE,...]
+    for m in re.finditer(r'\[null,null,(\d{4,6}),', html):
+        try:
+            found.add(float(m.group(1)))
+        except ValueError:
+            pass
+
+    # Yöntem 4: itemprop price
+    for m in re.finditer(r'content="(\d{3,6})"', html):
+        try:
+            p = float(m.group(1))
+            if 800 <= p <= 100000:
+                found.add(p)
+        except ValueError:
+            pass
+
+    if not found:
+        return []
+
+    return sorted(found)
+
+
 # ============================================================
 # SANİTY CHECK
 # ============================================================
-ROUTE_PRICE_BOUNDS = {
-    "IST-CDG": (1500, 15000),
-    "IST-LHR": (1500, 16000),
-    "IST-AMS": (1500, 14000),
-    "IST-BCN": (1500, 14000),
-    "IST-FCO": (1200, 13000),
-    "IST-MAD": (1500, 15000),
-    "IST-FRA": (1200, 13000),
-    "IST-MUC": (1200, 13000),
-    "IST-VIE": (1200, 12000),
-    "IST-PRG": (1200, 13000),
-    "IST-ATH": (800,  10000),
-    "IST-DXB": (1000, 12000),
-    "IST-JFK": (10000, 80000),
-    "IST-LAX": (12000, 90000),
-    "SAW-CDG": (1500, 15000),
-    "SAW-LHR": (1500, 16000),
-    "SAW-AMS": (1500, 14000),
-    "SAW-BCN": (1500, 14000),
-    "SAW-FCO": (1200, 13000),
+BOUNDS = {
+    "IST-CDG":(1500,15000), "IST-LHR":(1500,16000), "IST-AMS":(1500,14000),
+    "IST-BCN":(1500,14000), "IST-FCO":(1200,13000), "IST-MAD":(1500,15000),
+    "IST-FRA":(1200,13000), "IST-MUC":(1200,13000), "IST-VIE":(1200,12000),
+    "IST-PRG":(1200,13000), "IST-ATH":(800,10000),  "IST-DXB":(1000,12000),
+    "IST-JFK":(10000,80000),"IST-LAX":(12000,90000),
+    "SAW-CDG":(1500,15000), "SAW-LHR":(1500,16000), "SAW-AMS":(1500,14000),
+    "SAW-BCN":(1500,14000), "SAW-FCO":(1200,13000),
 }
-DEFAULT_BOUNDS = (500, 200000)
 
-def sanity_check(price: float, route: str) -> bool:
-    min_p, max_p = ROUTE_PRICE_BOUNDS.get(route, DEFAULT_BOUNDS)
-    return min_p <= price <= max_p
+def sanity_check(price, route):
+    mn, mx = BOUNDS.get(route, (500, 200000))
+    return mn <= price <= mx
 
-def is_mistake_fare(price: float, target: float) -> bool:
-    return price <= target * MISTAKE_THRESHOLD
-
-def is_below_alarm_threshold(price: float, target: float) -> bool:
-    return price < target * ALARM_THRESHOLD
+def is_mistake_fare(p, t): return p <= t * MISTAKE_THRESHOLD
+def is_below_alarm(p, t):  return p < t * ALARM_THRESHOLD
 
 # ============================================================
-# HISTORY (ANTİ-SPAM)
+# HISTORY
 # ============================================================
-HISTORY_FILE = Path("history.json")
+HFILE = Path("history.json")
 
-def load_history() -> dict:
-    if HISTORY_FILE.exists():
-        try:
-            return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+def load_history():
+    if HFILE.exists():
+        try: return json.loads(HFILE.read_text(encoding="utf-8"))
+        except: pass
     return {"alarms": [], "daily_count": 0, "daily_date": ""}
 
-def save_history(history: dict):
-    HISTORY_FILE.write_text(
-        json.dumps(history, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+def save_history(h):
+    HFILE.write_text(json.dumps(h, ensure_ascii=False, indent=2), encoding="utf-8")
 
-def can_send_alarm(route: str, price: float, target: float) -> tuple:
-    history = load_history()
+def can_send_alarm(route, price, target):
+    h = load_history()
     today = datetime.now().strftime("%Y-%m-%d")
-
-    if history.get("daily_date") != today:
-        history["daily_count"] = 0
-        history["daily_date"] = today
+    if h.get("daily_date") != today:
+        h["daily_count"] = 0; h["daily_date"] = today
         cutoff = (datetime.now() - timedelta(days=30)).isoformat()
-        history["alarms"] = [
-            a for a in history.get("alarms", [])
-            if a.get("time", "") > cutoff
-        ]
-
-    mistake = is_mistake_fare(price, target)
-
-    if history.get("daily_count", 0) >= 3:
-        return False, "Günlük 3 alarm limitine ulaşıldı"
-
-    cutoff_24h = (datetime.now() - timedelta(hours=24)).isoformat()
-    recent = [
-        a for a in history.get("alarms", [])
-        if a.get("route") == route and a.get("time", "") > cutoff_24h
-    ]
-    if recent:
-        return False, f"{route} için son 24 saatte alarm zaten gönderildi"
-
+        h["alarms"] = [a for a in h.get("alarms",[]) if a.get("time","") > cutoff]
+    if h.get("daily_count", 0) >= 3: return False, "Günlük 3 limit"
+    cutoff24 = (datetime.now() - timedelta(hours=24)).isoformat()
+    if any(a.get("route")==route and a.get("time","")>cutoff24 for a in h.get("alarms",[])):
+        return False, f"{route} 24s içinde alarm gönderildi"
     return True, "OK"
 
-def record_alarm(route: str):
-    history = load_history()
+def record_alarm(route):
+    h = load_history()
     today = datetime.now().strftime("%Y-%m-%d")
-    if history.get("daily_date") != today:
-        history["daily_count"] = 0
-        history["daily_date"] = today
-    history["daily_count"] = history.get("daily_count", 0) + 1
-    history.setdefault("alarms", []).append({
-        "route": route,
-        "time": datetime.now().isoformat()
-    })
-    save_history(history)
+    if h.get("daily_date") != today: h["daily_count"]=0; h["daily_date"]=today
+    h["daily_count"] = h.get("daily_count",0) + 1
+    h.setdefault("alarms",[]).append({"route":route,"time":datetime.now().isoformat()})
+    save_history(h)
 
 # ============================================================
 # TELEGRAM
 # ============================================================
-def send_telegram_sync(message: str):
-    """Senkron Telegram gönderici (requests yerine urllib)"""
-    targets = [ADMIN_ID, GROUP_ID]
+def send_telegram_sync(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-    for chat_id in targets:
+    for cid in [ADMIN_ID, GROUP_ID]:
         try:
-            data = json.dumps({
-                "chat_id": chat_id,
-                "text": message,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": False,
-            }).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                if resp.status == 200:
-                    print(f"  [Telegram ✓] chat_id={chat_id}")
-                else:
-                    print(f"  [Telegram HATA] HTTP {resp.status}")
+            data = json.dumps({"chat_id":cid,"text":msg,"parse_mode":"HTML","disable_web_page_preview":False}).encode()
+            req = urllib.request.Request(url, data=data, headers={"Content-Type":"application/json"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                print(f"  [Telegram ✓] {cid}" if r.status==200 else f"  [Telegram HATA] {r.status}")
         except Exception as e:
-            print(f"  [Telegram EXCEPTION] {e}")
+            print(f"  [Telegram ERR] {e}")
 
-def format_message(
-    origin, dest, depart_date, return_date,
-    price, airline, target
-) -> str:
-    savings_pct = round((1 - price / target) * 100)
-    visa_status = get_visa_status(dest)
+def format_message(origin, dest, dep, ret, price, airline, target):
+    pct = round((1 - price/target)*100)
     mistake = is_mistake_fare(price, target)
-
-    google_link = (
-        f"https://www.google.com/travel/flights"
-        f"?hl=tr&curr=TRY&gl=TR"
-        f"&q={origin}+to+{dest}+{depart_date}+{return_date}"
-    )
-
-    if mistake:
-        header = "🚨 <b>PROJECT TITAN – MISTAKE FARE ALARMI</b> ⚡"
-        note = f"⚡ <b>MISTAKE FARE!</b> Hedefin %{savings_pct} altında – anında al!"
-    else:
-        header = "🦅 <b>PROJECT TITAN – DİP FİYAT ALARMI</b> 💎"
-        note = (
-            f"📊 <b>Analiz:</b> Belirlenen hedefin <b>%{savings_pct} altında!</b>\n"
-            f"✅ Alarm eşiği: Hedefin %{round((1-ALARM_THRESHOLD)*100)}'den fazla indirimli"
-        )
-
-    return (
-        f"{header}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✈️ <b>Rota:</b> {origin} ➔ {dest} <i>(Direkt Uçuş)</i>\n"
-        f"📅 <b>Gidiş:</b> {depart_date}\n"
-        f"📅 <b>Dönüş:</b> {return_date}\n"
-        f"💰 <b>Fiyat:</b> <b>{price:,.0f} TL</b>\n"
-        f"🎯 <b>Hedef Fiyat:</b> {target:,.0f} TL\n"
-        f"🏷️ <b>Havayolu:</b> {airline}\n"
-        f"{note}\n"
-        f"🌍 <b>Vize:</b> {visa_status}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f'🔍 <a href="{google_link}">✈️ Google Flights\'ta Ara</a>\n'
-        f"⚡ <b>AKSİYON: HEMEN AL!</b>"
-    )
+    link = build_google_flights_url(origin, dest, dep, ret)
+    header = "🚨 <b>MISTAKE FARE ALARMI</b> ⚡" if mistake else "🦅 <b>DİP FİYAT ALARMI</b> 💎"
+    note = f"⚡ MISTAKE FARE! Hedefin %{pct} altında!" if mistake else f"📊 Hedefin %{pct} altında!"
+    return (f"{header}\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"✈️ <b>Rota:</b> {origin} ➔ {dest}\n📅 <b>Gidiş:</b> {dep}\n📅 <b>Dönüş:</b> {ret}\n"
+            f"💰 <b>Fiyat:</b> {price:,.0f} TL\n🎯 <b>Hedef:</b> {target:,.0f} TL\n"
+            f"🏷️ <b>Havayolu:</b> {airline}\n{note}\n"
+            f"🌍 <b>Vize:</b> {get_visa_status(dest)}\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f'🔍 <a href="{link}">Google Flights\'ta Ara</a>\n⚡ HEMEN AL!')
 
 # ============================================================
 # ANA MOTOR
 # ============================================================
 async def run_scraper():
     print(f"\n{'='*60}")
-    print(f"PROJECT TITAN v4.0 – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Motor: Google Flights (Playwright)")
-    print(f"Alarm Eşiği: Hedefin %{round(ALARM_THRESHOLD*100)}'inden ucuz")
-    print(f"Mistake Fare: Hedefin %{round(MISTAKE_THRESHOLD*100)}'inden ucuz")
+    print(f"PROJECT TITAN v5.0 – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Motor: Google Flights HTTP (Playwright YOK)")
     print(f"{'='*60}\n")
 
     all_flights = []
     search_dates = get_search_dates()
 
-    async with async_playwright() as pw:
-        print(f"[Browser] Chromium başlatılıyor...")
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-extensions",
-                "--disable-blink-features=AutomationControlled",
-                "--window-size=1280,800",
-            ],
-        )
-
-        context = await browser.new_context(
-            locale="tr-TR",
-            timezone_id="Europe/Istanbul",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/121.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 800},
-            extra_http_headers={
-                "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
-            },
-        )
-
-        # Otomasyon tespitini engelle
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['tr-TR', 'tr', 'en']});
-            window.chrome = {runtime: {}};
-        """)
-
-        page = await context.new_page()
-
+    async with httpx.AsyncClient(follow_redirects=True, http2=True,
+                                  timeout=httpx.Timeout(35.0, connect=10.0)) as client:
         for route in ROUTES:
             origin, dest = route.split("-")
-            target_price = TARGET_PRICES[route]
-            alarm_price = target_price * ALARM_THRESHOLD
+            target = TARGET_PRICES[route]
+            alarm_p = target * ALARM_THRESHOLD
+            print(f"\n[ROTA] {route} | Hedef: {target:,} TL | Eşik: {alarm_p:,.0f} TL")
 
-            print(f"\n[ROTA] {route} | Hedef: {target_price:,} TL | Eşik: {alarm_price:,.0f} TL")
-
-            dates_to_check = random.sample(search_dates, min(2, len(search_dates)))
-
-            for depart_date, return_date in dates_to_check:
-                print(f"  [Tarih] {depart_date} → {return_date}")
-
-                flights = await scrape_google_flights(
-                    origin, dest, depart_date, return_date, page
-                )
-
-                google_link = (
-                    f"https://www.google.com/travel/flights"
-                    f"?hl=tr&curr=TRY&gl=TR"
-                    f"&q={origin}+to+{dest}+{depart_date}+{return_date}"
-                )
+            for dep, ret in random.sample(search_dates, min(2, len(search_dates))):
+                print(f"  [Tarih] {dep} → {ret}")
+                flights = await fetch_google_flights(origin, dest, dep, ret, client)
+                glink = build_google_flights_url(origin, dest, dep, ret)
 
                 if not flights:
-                    print(f"  [!] {route} için {depart_date} tarihinde veri yok")
+                    print(f"  [!] Veri yok")
                     all_flights.append({
-                        "route": route,
-                        "origin": origin,
-                        "dest": dest,
-                        "depart_date": depart_date,
-                        "return_date": return_date,
-                        "price": None,
-                        "airline": "Veri yok",
-                        "target": target_price,
-                        "alarm_threshold": round(alarm_price),
-                        "savings_pct": None,
-                        "is_below_target": False,
-                        "is_mistake_fare": False,
-                        "google_link": google_link,
-                        "scraped_at": datetime.now().isoformat(),
-                        "data_source": "no_results",
+                        "route":route,"origin":origin,"dest":dest,
+                        "depart_date":dep,"return_date":ret,"price":None,
+                        "airline":"Veri yok","target":target,"alarm_threshold":round(alarm_p),
+                        "savings_pct":None,"is_below_target":False,"is_mistake_fare":False,
+                        "google_link":glink,"scraped_at":datetime.now().isoformat(),"data_source":"no_results"
                     })
-                    await asyncio.sleep(random.uniform(3, 6))
+                    await asyncio.sleep(random.uniform(3,7))
                     continue
 
-                for flight in flights:
-                    price = flight["price"]
-                    airline = flight["airline"]
-
+                for f in flights:
+                    price, airline = f["price"], f["airline"]
                     if not sanity_check(price, route):
-                        print(f"  [!] Sanity check FAIL: {price:,.0f} TL ({route}) – atlandı")
+                        print(f"  [!] Sanity FAIL: {price:,.0f} TL")
                         continue
-
-                    below_threshold = is_below_alarm_threshold(price, target_price)
-                    mistake = is_mistake_fare(price, target_price)
-
-                    flight_record = {
-                        "route": route,
-                        "origin": origin,
-                        "dest": dest,
-                        "depart_date": depart_date,
-                        "return_date": return_date,
-                        "price": price,
-                        "airline": airline,
-                        "target": target_price,
-                        "alarm_threshold": round(alarm_price),
-                        "savings_pct": round((1 - price / target_price) * 100),
-                        "is_below_target": below_threshold,
-                        "is_mistake_fare": mistake,
-                        "google_link": google_link,
-                        "scraped_at": datetime.now().isoformat(),
-                        "data_source": flight.get("source", "google_flights"),
-                    }
-                    all_flights.append(flight_record)
-
-                    label = ""
-                    if mistake:
-                        label = "🚨 MISTAKE FARE"
-                    elif below_threshold:
-                        label = "🎯 ALARM EŞİĞİ ALTI"
-
-                    print(f"  [✓] {origin}→{dest}: {price:,.0f} TL | {airline} {label}")
-
-                    if below_threshold or mistake:
-                        can_send, reason = can_send_alarm(route, price, target_price)
-                        if can_send:
-                            print(f"  [🔔] Telegram alarm gönderiliyor...")
-                            msg = format_message(
-                                origin, dest,
-                                depart_date, return_date,
-                                price, airline, target_price
-                            )
-                            send_telegram_sync(msg)
+                    below = is_below_alarm(price, target)
+                    mistake = is_mistake_fare(price, target)
+                    label = "🚨 MISTAKE" if mistake else ("🎯 ALARM" if below else "")
+                    print(f"  [✓] {price:,.0f} TL | {airline} {label}")
+                    all_flights.append({
+                        "route":route,"origin":origin,"dest":dest,
+                        "depart_date":dep,"return_date":ret,"price":price,
+                        "airline":airline,"target":target,"alarm_threshold":round(alarm_p),
+                        "savings_pct":round((1-price/target)*100),
+                        "is_below_target":below,"is_mistake_fare":mistake,
+                        "google_link":glink,"scraped_at":datetime.now().isoformat(),
+                        "data_source":f.get("source","google_flights")
+                    })
+                    if below or mistake:
+                        ok, reason = can_send_alarm(route, price, target)
+                        if ok:
+                            print(f"  [🔔] Telegram gönderiliyor...")
+                            send_telegram_sync(format_message(origin,dest,dep,ret,price,airline,target))
                             record_alarm(route)
                         else:
-                            print(f"  [⏸] Alarm engellendi: {reason}")
+                            print(f"  [⏸] {reason}")
 
-                # Rotalar arası bekleme (anti-bot)
-                await asyncio.sleep(random.uniform(4, 8))
+                await asyncio.sleep(random.uniform(4, 9))
 
-        await browser.close()
-
-    # ============================================================
-    # SONUÇLARI flights.json'A YAZ
-    # ============================================================
-    valid_flights   = [f for f in all_flights if f.get("price") is not None]
-    no_data_flights = [f for f in all_flights if f.get("price") is None]
-    sorted_flights  = sorted(valid_flights, key=lambda x: x["price"]) + no_data_flights
+    valid = [f for f in all_flights if f.get("price") is not None]
+    no_data = [f for f in all_flights if f.get("price") is None]
 
     output = {
         "last_updated": datetime.now().isoformat(),
-        "total_found": len(valid_flights),
-        "below_target": sum(1 for f in valid_flights if f.get("is_below_target")),
-        "alarm_threshold_pct": round((1 - ALARM_THRESHOLD) * 100),
-        "data_source": "google_flights_playwright",
-        "flights": sorted_flights,
+        "total_found": len(valid),
+        "below_target": sum(1 for f in valid if f.get("is_below_target")),
+        "alarm_threshold_pct": round((1-ALARM_THRESHOLD)*100),
+        "data_source": "google_flights_http",
+        "flights": sorted(valid, key=lambda x: x["price"]) + no_data,
     }
-
-    Path("flights.json").write_text(
-        json.dumps(output, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    Path("flights.json").write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"\n{'='*60}")
-    print(f"[✓] Toplam {len(valid_flights)} geçerli uçuş bulundu.")
-    print(f"[✓] {output['below_target']} uçuş alarm eşiğinin altında.")
-    print(f"[✓] flights.json güncellendi.")
+    print(f"[✓] {len(valid)} geçerli uçuş | {output['below_target']} alarm eşiği altı")
     print(f"{'='*60}\n")
-
 
 if __name__ == "__main__":
     asyncio.run(run_scraper())
