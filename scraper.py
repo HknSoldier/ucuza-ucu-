@@ -476,6 +476,7 @@ async def run_scraper():
     search_dates = get_search_dates()
 
     async with async_playwright() as pw:
+        print(f"[Browser] Chromium başlatılıyor...")
         browser = await pw.chromium.launch(
             headless=True,
             args=[
@@ -483,11 +484,9 @@ async def run_scraper():
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
-                "--no-first-run",
-                "--no-zygote",
-                "--single-process",
                 "--disable-extensions",
                 "--disable-blink-features=AutomationControlled",
+                "--window-size=1280,800",
             ],
         )
 
