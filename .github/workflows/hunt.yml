@@ -82,7 +82,7 @@ jobs:
       - name: 🎭 Playwright Chromium Kur
         run: |
           # --with-deps yerine sadece browser indir; sistem paketleri yukarıda kuruldu
-          playwright install chromium
+          python -m playwright install chromium
 
       # 6. Mevcut state dosyalarını restore et (varsa)
       - name: 📂 State Dosyaları Kontrol
