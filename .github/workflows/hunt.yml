@@ -30,27 +30,11 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      # 3. Sistem bağımlılıkları (Ubuntu 24.04 uyumlu)
-      - name: 🔧 Sistem Bağımlılıkları
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q \
-            libasound2t64 \
-            libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 \
-            libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 \
-            libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-            libpango-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 \
-            fonts-liberation xvfb || true
-
-      # 4. Bağımlılıkları kur
+      # 3. Bağımlılıkları kur
       - name: 📦 Python Bağımlılıkları Kur
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      # 5. Playwright Chromium indir (--with-deps YOK — sistem paketleri yukarıda kuruldu)
-      - name: 🎭 Playwright Chromium Kur
-        run: python -m playwright install chromium
 
       # 6. Mevcut state dosyalarını restore et (varsa)
       - name: 📂 State Dosyaları Kontrol
@@ -68,11 +52,7 @@ jobs:
       - name: 🚀 PROJECT TITAN Çalıştır
         env:
           PYTHONUNBUFFERED: "1"
-          DISPLAY: ":99"
         run: |
-          # Xvfb sanal ekranı başlat
-          Xvfb :99 -screen 0 1280x800x24 &
-          sleep 2
           echo "⏰ Başlangıç: $(date)"
           python scraper.py
           echo "✅ Bitiş: $(date)"
