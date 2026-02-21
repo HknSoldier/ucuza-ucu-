@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PROJECT TITAN v5.2
+PROJECT TITAN v5.3
 Düzeltmeler:
 - Google Flights linkleri URL encode edildi (+ → %20)
 - Fiyat parse: minimum 3 farklı pattern eşleşmesi zorunlu (yanlış alarm engeli)
@@ -99,6 +99,20 @@ def fetch_url(url):
         return None, None
 
 
+def has_stopover(html):
+    """HTML'de aktarma göstergesi var mı?"""
+    stopover_keywords = [
+        "aktarma", "aktarmalı", "bağlantı",
+        "stopover", "layover", "connecting",
+        "1 stop", "2 stop", "1 durak", "2 durak",
+    ]
+    lower = html.lower()
+    for kw in stopover_keywords:
+        if kw in lower:
+            return True
+    return False
+
+
 def extract_prices(html, route):
     """
     KATIL FİYAT PARSE:
@@ -161,7 +175,7 @@ def fetch_google_flights_sync(origin, dest, dep_date, ret_date):
     url = (f"https://www.google.com/travel/flights"
            f"?hl=tr&curr=TRY&gl=TR"
            f"&q={origin}+to+{dest}+{dep_date}+{ret_date}"
-           f"&nonstop=1")
+           f"&nonstop=1&stops=0")
     route = f"{origin}-{dest}"
     print(f"    [GF] {route} {dep_date} sorgulanıyor...")
 
@@ -176,6 +190,11 @@ def fetch_google_flights_sync(origin, dest, dep_date, ret_date):
         print(f"    [GF] Unusual traffic")
         return []
 
+    # Aktarma kontrolü: HTML'de aktarma belirtisi varsa alarm eşiğini yükselt
+    page_has_stopover = has_stopover(html)
+    if page_has_stopover:
+        print(f"    [GF] ⚠️ Sayfada aktarmalı uçuş belirtisi tespit edildi")
+
     prices = extract_prices(html, route)
     if not prices:
         return []
@@ -184,9 +203,10 @@ def fetch_google_flights_sync(origin, dest, dep_date, ret_date):
     return [{
         "price": p,
         "airline": "Çeşitli",
-        "stops": 0,
+        "stops": 1 if page_has_stopover else 0,
         "source": "google_flights",
         "scraped_at": scraped_at,
+        "has_stopover": page_has_stopover,
     } for p in prices]
 
 
@@ -300,8 +320,8 @@ def format_message(origin, dest, dep, ret, price, airline, target):
 # ============================================================
 def run_scraper():
     print(f"\n{'='*60}")
-    print(f"PROJECT TITAN v5.2 – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Motor: Google Flights urllib | Maks veri yaşı: {MAX_DATA_AGE_HOURS}s")
+    print(f"PROJECT TITAN v5.3 – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Motor: Google Flights urllib | Direkt uçuş zorunlu | Maks yaş: {MAX_DATA_AGE_HOURS}s")
     print(f"{'='*60}\n")
 
     all_flights = []
@@ -359,6 +379,10 @@ def run_scraper():
                     # 3 saatten eski veri → alarm gönderme
                     if not is_fresh(scraped_at):
                         print(f"  [⏸] Veri {MAX_DATA_AGE_HOURS}s'den eski, alarm atlandı")
+                        continue
+                    # Aktarmalı uçuş → sadece %90 indirimli ise alarm ver
+                    if f.get("has_stopover") and not is_mistake_fare(price, target):
+                        print(f"  [⏸] Aktarmalı uçuş + %90 altı değil → alarm yok")
                         continue
                     ok, reason = can_send_alarm(route, price, target)
                     if ok:
