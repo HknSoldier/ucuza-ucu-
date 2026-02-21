@@ -70,6 +70,9 @@ jobs:
           PYTHONUNBUFFERED: "1"
           DISPLAY: ":99"
         run: |
+          # Xvfb sanal ekranı başlat
+          Xvfb :99 -screen 0 1280x800x24 &
+          sleep 2
           echo "⏰ Başlangıç: $(date)"
           python scraper.py
           echo "✅ Bitiş: $(date)"
