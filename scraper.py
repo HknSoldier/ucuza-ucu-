@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-PROJECT TITAN v5.0 – Google Flights Internal API
-Browser yok, CAPTCHA yok. Google Flights sayfası HTTP GET ile çekilir,
-HTML içindeki gömülü JSON veri blokları parse edilir.
+PROJECT TITAN v5.1 – Google Flights HTTP Scraper
+urllib kullanılır, sıkıştırma yok (identity), binary sorun yok.
 """
 
 import asyncio
@@ -10,10 +9,11 @@ import json
 import re
 import random
 import urllib.request
+import urllib.parse
+import gzip
+import zlib
 from datetime import datetime, timedelta
 from pathlib import Path
-
-import httpx
 
 # ============================================================
 # GLOBAL KİMLİK BİLGİLERİ
@@ -69,7 +69,7 @@ def build_google_flights_url(origin, dest, dep, ret):
     return f"https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR&q={origin}+to+{dest}+{dep}+{ret}"
 
 # ============================================================
-# HTTP FETCH
+# HTTP FETCH — urllib ile, sıkıştırmasız
 # ============================================================
 UAS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -78,60 +78,72 @@ UAS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
 ]
 
-async def fetch_google_flights(origin, dest, dep_date, ret_date, client):
-    results = []
-    url = f"https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR&q={origin}+to+{dest}+{dep_date}+{ret_date}&nonstop=1"
-
-    headers = {
-        "User-Agent": random.choice(UAS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Cache-Control": "no-cache",
-    }
+def fetch_url(url):
+    """Senkron urllib fetch — sıkıştırmasız, güvenli decode."""
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", random.choice(UAS))
+    req.add_header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+    req.add_header("Accept-Language", "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7")
+    # Sıkıştırma KAPALIYKEN gzip istiyoruz — urllib bunu otomatik açar
+    req.add_header("Accept-Encoding", "gzip, deflate")
+    req.add_header("Cache-Control", "no-cache")
 
     try:
-        print(f"    [GF] {origin}->{dest} {dep_date} sorgulanıyor...")
-        resp = await client.get(url, headers=headers, timeout=30.0)
-        print(f"    [GF] HTTP {resp.status_code} | {len(resp.text):,} karakter")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read()
+            encoding = resp.headers.get("Content-Encoding", "")
+            print(f"    [GF] HTTP {resp.status} | encoding={encoding} | {len(raw):,} byte")
 
-        if resp.status_code != 200:
-            return results
+            # Manuel decompress
+            if encoding == "gzip":
+                raw = gzip.decompress(raw)
+            elif encoding == "deflate":
+                raw = zlib.decompress(raw)
+            # br (brotli) — stdlib yok, skip
 
-        html = resp.text
-
-        if any(x in html.lower() for x in ["captcha", "unusual traffic", "/sorry/"]):
-            print(f"    [GF] ⚠️ Bot tespiti")
-            return results
-
-        prices = extract_prices(html)
-        if prices:
-            print(f"    [GF ✓] Bulunan fiyatlar: {[f'{p:,.0f}₺' for p in prices[:5]]}")
-            for p in prices[:3]:
-                results.append({"price": p, "airline": "Çeşitli", "stops": 0, "source": "google_flights"})
-        else:
-            print(f"    [GF] Fiyat parse edilemedi")
-            # Debug - içeriğe bak
-            if "google" in html.lower():
-                print(f"    [GF DEBUG] Google sayfası döndü ama fiyat yok")
-            else:
-                print(f"    [GF DEBUG] Beklenmedik yanıt: {html[:100]}")
-
+            html = raw.decode("utf-8", errors="replace")
+            return html
     except Exception as e:
         print(f"    [GF HATA] {e}")
+        return None
 
-    return results
+
+def fetch_google_flights_sync(origin, dest, dep_date, ret_date):
+    """Google Flights'tan fiyat çek — senkron."""
+    url = f"https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR&q={origin}+to+{dest}+{dep_date}+{ret_date}&nonstop=1"
+    print(f"    [GF] {origin}->{dest} {dep_date} sorgulanıyor...")
+
+    html = fetch_url(url)
+    if not html:
+        return []
+
+    print(f"    [GF] HTML başlangıcı: {repr(html[:80])}")
+
+    if any(x in html.lower() for x in ["captcha", "unusual traffic", "/sorry/"]):
+        print(f"    [GF] ⚠️ Bot tespiti")
+        return []
+
+    prices = extract_prices(html)
+    if prices:
+        print(f"    [GF ✓] Fiyatlar: {[f'{p:,.0f}₺' for p in prices[:5]]}")
+        return [{"price": p, "airline": "Çeşitli", "stops": 0, "source": "google_flights"} for p in prices[:3]]
+    else:
+        print(f"    [GF] Fiyat bulunamadı")
+        # Daha fazla debug bilgisi
+        idx = html.find("₺")
+        if idx >= 0:
+            print(f"    [GF DEBUG] ₺ bulundu: {repr(html[idx-5:idx+20])}")
+        else:
+            print(f"    [GF DEBUG] ₺ sembolü hiç yok. İlk 200: {repr(html[:200])}")
+        return []
 
 
 def extract_prices(html):
     """Google Flights HTML'inden TRY fiyatlarını çıkar."""
     found = set()
 
-    # Yöntem 1: ₺ sembolünden sonra gelen sayılar
-    for m in re.finditer(r'₺\s*(\d[\d.]*)', html):
+    # 1) ₺ sembolü
+    for m in re.finditer(r'₺\s*([\d.,]+)', html):
         try:
             price = float(m.group(1).replace(".", "").replace(",", ""))
             if 500 <= price <= 200000:
@@ -139,40 +151,30 @@ def extract_prices(html):
         except ValueError:
             pass
 
-    # Yöntem 2: "TRY" ile birlikte geçen sayılar (JSON içinde)
+    # 2) "SAYI","TRY" formatı
     for m in re.finditer(r'"(\d{4,6})"\s*,\s*"TRY"', html):
-        try:
-            found.add(float(m.group(1)))
-        except ValueError:
-            pass
+        try: found.add(float(m.group(1)))
+        except: pass
 
+    # 3) "TRY",SAYI
     for m in re.finditer(r'"TRY"\s*,\s*(\d{4,6})\b', html):
-        try:
-            found.add(float(m.group(1)))
-        except ValueError:
-            pass
+        try: found.add(float(m.group(1)))
+        except: pass
 
-    # Yöntem 3: Google'ın data array formatı - [null,null,PRICE,...]
+    # 4) [null,null,SAYI
     for m in re.finditer(r'\[null,null,(\d{4,6}),', html):
-        try:
-            found.add(float(m.group(1)))
-        except ValueError:
-            pass
+        try: found.add(float(m.group(1)))
+        except: pass
 
-    # Yöntem 4: itemprop price
-    for m in re.finditer(r'content="(\d{3,6})"', html):
+    # 5) data-price veya itemprop
+    for m in re.finditer(r'(?:data-price|content)="(\d{3,6})"', html):
         try:
             p = float(m.group(1))
             if 800 <= p <= 100000:
                 found.add(p)
-        except ValueError:
-            pass
-
-    if not found:
-        return []
+        except: pass
 
     return sorted(found)
-
 
 # ============================================================
 # SANİTY CHECK
@@ -186,7 +188,6 @@ BOUNDS = {
     "SAW-CDG":(1500,15000), "SAW-LHR":(1500,16000), "SAW-AMS":(1500,14000),
     "SAW-BCN":(1500,14000), "SAW-FCO":(1200,13000),
 }
-
 def sanity_check(price, route):
     mn, mx = BOUNDS.get(route, (500, 200000))
     return mn <= price <= mx
@@ -259,68 +260,66 @@ def format_message(origin, dest, dep, ret, price, airline, target):
 # ============================================================
 # ANA MOTOR
 # ============================================================
-async def run_scraper():
+def run_scraper():
     print(f"\n{'='*60}")
-    print(f"PROJECT TITAN v5.0 – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Motor: Google Flights HTTP (Playwright YOK)")
+    print(f"PROJECT TITAN v5.1 – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Motor: Google Flights urllib (sıkıştırmasız, güvenli)")
     print(f"{'='*60}\n")
 
     all_flights = []
     search_dates = get_search_dates()
 
-    async with httpx.AsyncClient(follow_redirects=True, http2=True,
-                                  timeout=httpx.Timeout(35.0, connect=10.0)) as client:
-        for route in ROUTES:
-            origin, dest = route.split("-")
-            target = TARGET_PRICES[route]
-            alarm_p = target * ALARM_THRESHOLD
-            print(f"\n[ROTA] {route} | Hedef: {target:,} TL | Eşik: {alarm_p:,.0f} TL")
+    for route in ROUTES:
+        origin, dest = route.split("-")
+        target = TARGET_PRICES[route]
+        alarm_p = target * ALARM_THRESHOLD
+        print(f"\n[ROTA] {route} | Hedef: {target:,} TL | Eşik: {alarm_p:,.0f} TL")
 
-            for dep, ret in random.sample(search_dates, min(2, len(search_dates))):
-                print(f"  [Tarih] {dep} → {ret}")
-                flights = await fetch_google_flights(origin, dest, dep, ret, client)
-                glink = build_google_flights_url(origin, dest, dep, ret)
+        for dep, ret in random.sample(search_dates, min(2, len(search_dates))):
+            print(f"  [Tarih] {dep} → {ret}")
+            flights = fetch_google_flights_sync(origin, dest, dep, ret)
+            glink = build_google_flights_url(origin, dest, dep, ret)
 
-                if not flights:
-                    print(f"  [!] Veri yok")
-                    all_flights.append({
-                        "route":route,"origin":origin,"dest":dest,
-                        "depart_date":dep,"return_date":ret,"price":None,
-                        "airline":"Veri yok","target":target,"alarm_threshold":round(alarm_p),
-                        "savings_pct":None,"is_below_target":False,"is_mistake_fare":False,
-                        "google_link":glink,"scraped_at":datetime.now().isoformat(),"data_source":"no_results"
-                    })
-                    await asyncio.sleep(random.uniform(3,7))
+            if not flights:
+                print(f"  [!] Veri yok")
+                all_flights.append({
+                    "route":route,"origin":origin,"dest":dest,
+                    "depart_date":dep,"return_date":ret,"price":None,
+                    "airline":"Veri yok","target":target,"alarm_threshold":round(alarm_p),
+                    "savings_pct":None,"is_below_target":False,"is_mistake_fare":False,
+                    "google_link":glink,"scraped_at":datetime.now().isoformat(),"data_source":"no_results"
+                })
+                import time; time.sleep(random.uniform(3,7))
+                continue
+
+            for f in flights:
+                price, airline = f["price"], f["airline"]
+                if not sanity_check(price, route):
+                    print(f"  [!] Sanity FAIL: {price:,.0f} TL")
                     continue
+                below = is_below_alarm(price, target)
+                mistake = is_mistake_fare(price, target)
+                label = "🚨 MISTAKE" if mistake else ("🎯 ALARM" if below else "")
+                print(f"  [✓] {price:,.0f} TL | {airline} {label}")
+                all_flights.append({
+                    "route":route,"origin":origin,"dest":dest,
+                    "depart_date":dep,"return_date":ret,"price":price,
+                    "airline":airline,"target":target,"alarm_threshold":round(alarm_p),
+                    "savings_pct":round((1-price/target)*100),
+                    "is_below_target":below,"is_mistake_fare":mistake,
+                    "google_link":glink,"scraped_at":datetime.now().isoformat(),
+                    "data_source":f.get("source","google_flights")
+                })
+                if below or mistake:
+                    ok, reason = can_send_alarm(route, price, target)
+                    if ok:
+                        print(f"  [🔔] Telegram gönderiliyor...")
+                        send_telegram_sync(format_message(origin,dest,dep,ret,price,airline,target))
+                        record_alarm(route)
+                    else:
+                        print(f"  [⏸] {reason}")
 
-                for f in flights:
-                    price, airline = f["price"], f["airline"]
-                    if not sanity_check(price, route):
-                        print(f"  [!] Sanity FAIL: {price:,.0f} TL")
-                        continue
-                    below = is_below_alarm(price, target)
-                    mistake = is_mistake_fare(price, target)
-                    label = "🚨 MISTAKE" if mistake else ("🎯 ALARM" if below else "")
-                    print(f"  [✓] {price:,.0f} TL | {airline} {label}")
-                    all_flights.append({
-                        "route":route,"origin":origin,"dest":dest,
-                        "depart_date":dep,"return_date":ret,"price":price,
-                        "airline":airline,"target":target,"alarm_threshold":round(alarm_p),
-                        "savings_pct":round((1-price/target)*100),
-                        "is_below_target":below,"is_mistake_fare":mistake,
-                        "google_link":glink,"scraped_at":datetime.now().isoformat(),
-                        "data_source":f.get("source","google_flights")
-                    })
-                    if below or mistake:
-                        ok, reason = can_send_alarm(route, price, target)
-                        if ok:
-                            print(f"  [🔔] Telegram gönderiliyor...")
-                            send_telegram_sync(format_message(origin,dest,dep,ret,price,airline,target))
-                            record_alarm(route)
-                        else:
-                            print(f"  [⏸] {reason}")
-
-                await asyncio.sleep(random.uniform(4, 9))
+            import time; time.sleep(random.uniform(4, 9))
 
     valid = [f for f in all_flights if f.get("price") is not None]
     no_data = [f for f in all_flights if f.get("price") is None]
@@ -330,7 +329,7 @@ async def run_scraper():
         "total_found": len(valid),
         "below_target": sum(1 for f in valid if f.get("is_below_target")),
         "alarm_threshold_pct": round((1-ALARM_THRESHOLD)*100),
-        "data_source": "google_flights_http",
+        "data_source": "google_flights_urllib",
         "flights": sorted(valid, key=lambda x: x["price"]) + no_data,
     }
     Path("flights.json").write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -339,5 +338,6 @@ async def run_scraper():
     print(f"[✓] {len(valid)} geçerli uçuş | {output['below_target']} alarm eşiği altı")
     print(f"{'='*60}\n")
 
+
 if __name__ == "__main__":
-    asyncio.run(run_scraper())
+    run_scraper()
