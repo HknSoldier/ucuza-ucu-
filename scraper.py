@@ -79,12 +79,11 @@ UAS = [
 ]
 
 def fetch_url(url):
-    """Senkron urllib fetch — sıkıştırmasız, güvenli decode."""
+    """Senkron urllib fetch — sıkıştırmasız, güvenli decode. (url, final_url) döndürür."""
     req = urllib.request.Request(url)
     req.add_header("User-Agent", random.choice(UAS))
     req.add_header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
     req.add_header("Accept-Language", "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7")
-    # Sıkıştırma KAPALIYKEN gzip istiyoruz — urllib bunu otomatik açar
     req.add_header("Accept-Encoding", "gzip, deflate")
     req.add_header("Cache-Control", "no-cache")
 
@@ -92,20 +91,22 @@ def fetch_url(url):
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read()
             encoding = resp.headers.get("Content-Encoding", "")
-            print(f"    [GF] HTTP {resp.status} | encoding={encoding} | {len(raw):,} byte")
+            final_url = resp.url
+            print(f"    [GF] HTTP {resp.status} | encoding={encoding} | {len(raw):,} byte | url={final_url[:60]}")
 
-            # Manuel decompress
             if encoding == "gzip":
                 raw = gzip.decompress(raw)
             elif encoding == "deflate":
-                raw = zlib.decompress(raw)
-            # br (brotli) — stdlib yok, skip
+                try:
+                    raw = zlib.decompress(raw)
+                except:
+                    raw = zlib.decompress(raw, -15)
 
             html = raw.decode("utf-8", errors="replace")
-            return html
+            return html, final_url
     except Exception as e:
         print(f"    [GF HATA] {e}")
-        return None
+        return None, None
 
 
 def fetch_google_flights_sync(origin, dest, dep_date, ret_date):
@@ -113,15 +114,12 @@ def fetch_google_flights_sync(origin, dest, dep_date, ret_date):
     url = f"https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR&q={origin}+to+{dest}+{dep_date}+{ret_date}&nonstop=1"
     print(f"    [GF] {origin}->{dest} {dep_date} sorgulanıyor...")
 
-    html = fetch_url(url)
+    html, resp_url = fetch_url(url)
     if not html:
         return []
 
     print(f"    [GF] HTML başlangıcı: {repr(html[:80])}")
-
-    if any(x in html.lower() for x in ["captcha", "unusual traffic", "/sorry/"]):
-        print(f"    [GF] ⚠️ Bot tespiti")
-        return []
+    print(f"    [GF] Final URL: {resp_url}")
 
     prices = extract_prices(html)
     if prices:
