@@ -128,13 +128,13 @@ def has_stopover(html):
 # SANİTY CHECK
 # ============================================================
 BOUNDS = {
-    "IST-CDG":(1500,15000), "IST-LHR":(1500,16000), "IST-AMS":(1500,14000),
-    "IST-BCN":(1500,14000), "IST-FCO":(1200,13000), "IST-MAD":(1500,15000),
-    "IST-FRA":(1200,13000), "IST-MUC":(1200,13000), "IST-VIE":(1200,12000),
-    "IST-PRG":(1200,13000), "IST-ATH":(800,10000),  "IST-DXB":(1000,12000),
-    "IST-JFK":(10000,80000),"IST-LAX":(12000,90000),
-    "SAW-CDG":(1500,15000), "SAW-LHR":(1500,16000), "SAW-AMS":(1500,14000),
-    "SAW-BCN":(1500,14000), "SAW-FCO":(1200,13000),
+    "IST-CDG":(200,15000), "IST-LHR":(200,16000), "IST-AMS":(200,14000),
+    "IST-BCN":(200,14000), "IST-FCO":(200,13000), "IST-MAD":(200,15000),
+    "IST-FRA":(200,13000), "IST-MUC":(200,13000), "IST-VIE":(200,12000),
+    "IST-PRG":(200,13000), "IST-ATH":(100,10000),  "IST-DXB":(200,12000),
+    "IST-JFK":(1000,80000),"IST-LAX":(1000,90000),
+    "SAW-CDG":(200,15000), "SAW-LHR":(200,16000), "SAW-AMS":(200,14000),
+    "SAW-BCN":(200,14000), "SAW-FCO":(200,13000),
 }
 
 def sanity_check(price, route):
@@ -191,7 +191,8 @@ def extract_prices(html, route):
     if tl_idx >= 0:
         print(f"    [DEBUG] ₺ bağlamı: {repr(html[max(0,tl_idx-5):tl_idx+25])}")
     else:
-        print(f"    [DEBUG] 4-5 haneli sayılar: {re.findall(r'b\\d{4,5}\\b', html)[:8]}")
+        pattern = r'\b\d{4,5}\b'
+        print(f"    [DEBUG] 4-5 haneli sayılar: {re.findall(pattern, html)[:8]}")
     return []
 
 def fetch_google_flights_sync(origin, dest, dep_date, ret_date):
