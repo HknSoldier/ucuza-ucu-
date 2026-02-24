@@ -2,9 +2,9 @@ name: 🦅 PROJECT TITAN – Flight Intel Hunter
 
 on:
   schedule:
-    # Her 6 saatte bir çalış (UTC): 03:00, 09:00, 15:00, 21:00
+    # UTC: 03:00, 09:00, 15:00, 21:00  →  TR: 06:00, 12:00, 18:00, 00:00
     - cron: '0 3,9,15,21 * * *'
-  workflow_dispatch:  # Manuel tetikleme
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,32 +13,43 @@ jobs:
   hunt:
     name: 🛰️ Uçuş Avı
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90         # Playwright + tüm rotalar için yeterli süre
 
     steps:
-      # 1. Repoyu checkout et
       - name: 📥 Repo Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2. Python kur
       - name: 🐍 Python 3.11 Kur
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
-      # 3. Bağımlılıkları kur (stdlib kullanıyor, requirements boş)
-      - name: 📦 Python Bağımlılıkları Kur
-        run: python -m pip install --upgrade pip
+      # ── Playwright kurulumu ──────────────────────────────────
+      - name: 📦 Playwright Kur
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps chromium
 
-      # 6. Mevcut state dosyalarını restore et (varsa)
+      # ── Sistem bağımlılıkları (Chromium için) ────────────────
+      - name: 🛠️ Sistem Bağımlılıkları
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+            libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+            libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
+            libpango-1.0-0 libcairo2 fonts-liberation \
+            || true
+
+      # ── State dosyaları ───────────────────────────────────────
       - name: 📂 State Dosyaları Kontrol
         run: |
           if [ ! -f history.json ]; then
-            echo '{"alarms":[],"daily_count":0,"daily_date":""}' > history.json
+            echo '{"alarms":[]}' > history.json
             echo "history.json oluşturuldu."
           fi
           if [ ! -f flights.json ]; then
@@ -46,70 +57,74 @@ jobs:
             echo "flights.json oluşturuldu."
           fi
 
-      # 7. Ana scraper'ı çalıştır
+      # ── Ana scraper ──────────────────────────────────────────
       - name: 🚀 PROJECT TITAN Çalıştır
         env:
           PYTHONUNBUFFERED: "1"
+          TITAN_BOT_TOKEN: ${{ secrets.TITAN_BOT_TOKEN }}
+          TITAN_ADMIN_ID:  ${{ secrets.TITAN_ADMIN_ID }}
+          TITAN_GROUP_ID:  ${{ secrets.TITAN_GROUP_ID }}
+          # Playwright headless mod için
+          DISPLAY: ""
         run: |
           echo "⏰ Başlangıç: $(date)"
           python scraper.py
           echo "✅ Bitiş: $(date)"
-        continue-on-error: true  # Scraper çöksede commit yapılsın
+        continue-on-error: true
 
-      # 8. Sonuçları göster
+      # ── Özet ────────────────────────────────────────────────
       - name: 📊 Sonuç Özeti
         run: |
           echo "=== TITAN SONUÇ ÖZETİ ==="
           if [ -f flights.json ]; then
             python3 -c "
           import json
-          data = json.load(open('flights.json'))
-          print(f'Toplam Uçuş: {data[\"total_found\"]}')
-          print(f'Hedef Altı:  {data[\"below_target\"]}')
-          print(f'Son Güncelleme: {data[\"last_updated\"]}')
-          "
-          fi
-          if [ -f history.json ]; then
-            python3 -c "
-          import json
-          h = json.load(open('history.json'))
-          print(f'Bugünkü Alarm Sayısı: {h[\"daily_count\"]}')
+          d = json.load(open('flights.json'))
+          print(f'Toplam Uçuş   : {d[\"total_found\"]}')
+          print(f'Hedef Altı    : {d[\"below_target\"]}')
+          print(f'Bu Run Alarm  : {d.get(\"alarms_sent_this_run\", 0)}')
+          print(f'Veri Kaynağı  : {d.get(\"data_source\", \"?\")}')
+          print(f'Son Güncelleme: {d[\"last_updated\"]}')
           "
           fi
 
-      # 9. Güncellenmiş dosyaları commit/push et
+      # ── Commit / Push ────────────────────────────────────────
       - name: 💾 Sonuçları Repoya Kaydet
         run: |
           git config --local user.email "titan-bot@github-actions"
           git config --local user.name "🦅 PROJECT TITAN Bot"
-          
+
           git add flights.json history.json
-          
+
           TIMESTAMP=$(date '+%Y-%m-%d %H:%M UTC')
           TOTAL=$(python3 -c "import json; d=json.load(open('flights.json')); print(d['total_found'])" 2>/dev/null || echo "0")
           BELOW=$(python3 -c "import json; d=json.load(open('flights.json')); print(d['below_target'])" 2>/dev/null || echo "0")
-          
-          git commit -m "🦅 TITAN: ${TIMESTAMP} | ${TOTAL} uçuş tarandı | ${BELOW} hedef altı" \
-            --allow-empty || echo "Commit yapılacak değişiklik yok."
-          
-          git push || echo "Push başarısız (conflict olabilir, bir sonraki çalışmada düzelir)."
 
-      # 10. Hata durumunda Telegram'a bildir
+          git commit -m "🦅 TITAN: ${TIMESTAMP} | ${TOTAL} uçuş | ${BELOW} hedef altı" \
+            --allow-empty || echo "Değişiklik yok."
+
+          git push || echo "Push başarısız."
+
+      # ── Hata bildirimi ───────────────────────────────────────
       - name: 🚨 Hata Bildirimi
         if: failure()
+        env:
+          TITAN_BOT_TOKEN: ${{ secrets.TITAN_BOT_TOKEN }}
+          TITAN_ADMIN_ID:  ${{ secrets.TITAN_ADMIN_ID }}
         run: |
           python3 -c "
-          import urllib.request, json, os
-          token = '8161806410:AAH4tGpW_kCvQpLOfaB-r2OYQMypPVYtuYg'
-          admin = '7684228928'
-          import datetime
-          msg = f'⚠️ PROJECT TITAN GitHub Actions HATASI\n📅 {datetime.datetime.now().strftime(\"%Y-%m-%d %H:%M\")}\n🔧 Workflow başarısız oldu. Logları kontrol edin.'
+          import urllib.request, json, os, datetime
+          token = os.environ.get('TITAN_BOT_TOKEN', '')
+          admin = os.environ.get('TITAN_ADMIN_ID', '')
+          if not token or not admin:
+              print('Token/Admin ID eksik, bildirim atlandı.')
+              exit(0)
+          msg = f'⚠️ PROJECT TITAN HATASI\n📅 {datetime.datetime.now().strftime(\"%Y-%m-%d %H:%M\")}\n🔧 Workflow başarısız. Logları kontrol et.'
           data = json.dumps({'chat_id': admin, 'text': msg}).encode()
           req = urllib.request.Request(
               f'https://api.telegram.org/bot{token}/sendMessage',
-              data=data,
-              headers={'Content-Type': 'application/json'}
+              data=data, headers={'Content-Type': 'application/json'}
           )
           urllib.request.urlopen(req, timeout=10)
           print('Hata bildirimi gönderildi.')
-          " || echo "Hata bildirimi gönderilemedi."
+          " || echo "Bildirim gönderilemedi."
