@@ -1,1 +1,1 @@
-# Sadece stdlib kullanılıyor, dış bağımlılık yok
+playwright>=1.41.0
