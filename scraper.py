@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-PROJECT TITAN v6.0 — Playwright Edition
-Alarm kuralları:
-- Direkt uçuş  : hedefin %50'sinden ucuz   → ALARM
-- Aktarmalı    : hedefin %10'undan ucuz    → ALARM (%90 indirim)
-- Aynı rota + fiyat bandı (%5) → 24s içinde tekrar alarm yok
+PROJECT TITAN v6.1 — Playwright Edition (Form Interaction)
+Önceki versiyondan farklar:
+  - Hash URL (#flt=...) KALDIRILDI → headless tarayıcıda çalışmıyor
+  - Arama formu gerçekten doldurulup gönderiliyor (insan davranışı)
+  - CAPTCHA tespiti düzeltildi (yanlış pozitif yoktu, asıl sorun URL'di)
+  - Stealth iyileştirildi: rastgele mouse hareketi, typing delay
 """
 
 import json
@@ -23,12 +24,12 @@ BOT_TOKEN = os.environ.get("TITAN_BOT_TOKEN", "8161806410:AAH4tGpW_kCvQpLOfaB-r2
 ADMIN_ID  = os.environ.get("TITAN_ADMIN_ID",  "7684228928")
 GROUP_ID  = os.environ.get("TITAN_GROUP_ID",  "-1003515302846")
 
-DIRECT_THRESHOLD   = 0.50   # Direkt: hedefin %50 altı
-STOPOVER_THRESHOLD = 0.10   # Aktarmalı: hedefin %10 altı (%90 indirim)
+DIRECT_THRESHOLD   = 0.50
+STOPOVER_THRESHOLD = 0.10
 MAX_DATA_AGE_HOURS = 3
-HEADLESS           = True   # GitHub Actions'da True olmalı
+HEADLESS           = True
 PAGE_TIMEOUT_MS    = 60_000
-WAIT_AFTER_LOAD_MS = 8_000  # JS render için bekleme (ms)
+RENDER_WAIT_MS     = 10_000   # Arama sonuçları yüklenmesi için bekleme
 
 TARGET_PRICES = {
     "IST-CDG": 3000, "IST-LHR": 3200, "IST-AMS": 2800,
@@ -42,7 +43,6 @@ TARGET_PRICES = {
 
 ROUTES = list(TARGET_PRICES.keys())
 
-# Fiyat aralığı: alarm eşiğini kapsayacak kadar geniş
 BOUNDS = {
     "IST-CDG":(150,15000),  "IST-LHR":(150,16000),  "IST-AMS":(150,14000),
     "IST-BCN":(150,14000),  "IST-FCO":(150,13000),  "IST-MAD":(150,15000),
@@ -51,6 +51,26 @@ BOUNDS = {
     "IST-JFK":(1000,80000), "IST-LAX":(1000,90000),
     "SAW-CDG":(150,15000),  "SAW-LHR":(150,16000),  "SAW-AMS":(150,14000),
     "SAW-BCN":(150,14000),  "SAW-FCO":(150,13000),
+}
+
+# Tam havalimanı adları — arama formuna yazılacak
+AIRPORT_NAMES = {
+    "IST": "Istanbul Ataturk",
+    "SAW": "Istanbul Sabiha",
+    "CDG": "Paris Charles de Gaulle",
+    "LHR": "London Heathrow",
+    "AMS": "Amsterdam",
+    "BCN": "Barcelona",
+    "FCO": "Rome Fiumicino",
+    "MAD": "Madrid",
+    "FRA": "Frankfurt",
+    "MUC": "Munich",
+    "VIE": "Vienna",
+    "PRG": "Prague",
+    "ATH": "Athens",
+    "DXB": "Dubai",
+    "JFK": "New York JFK",
+    "LAX": "Los Angeles",
 }
 
 SCHENGEN = {"CDG","ORY","AMS","EIN","BCN","MAD","FCO","MXP","LIN","FRA","MUC",
@@ -67,7 +87,6 @@ def get_visa_status(dest):
     return "ℹ️ Vize durumu kontrol edilmeli"
 
 def get_search_dates():
-    """Önümüzdeki haftalara ait Cuma-Pazartesi tarifleri üretir."""
     dates = []
     base = datetime.now()
     for w in [2, 3, 4, 5, 6, 8, 10, 12, 14, 16]:
@@ -78,21 +97,9 @@ def get_search_dates():
     return dates
 
 def build_short_url(origin, dest, dep, ret):
-    """Dashboard ve Telegram için Google Flights linki."""
     import urllib.parse
     q = urllib.parse.quote(f"{origin} to {dest} {dep} {ret}")
     return f"https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR&q={q}"
-
-def build_flights_url(origin, dest, dep, ret, nonstop=True):
-    """
-    Google Flights hash URL — fiyatların direkt görünmesi için en iyi format.
-    #flt= parametresi sayfayı doğru sonuçlara yönlendirir.
-    """
-    base = f"https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR"
-    # Nonstop filtresi: sd:1 = stops direct only
-    stops = ";sd:1" if nonstop else ""
-    hash_part = f"flt={origin}.{dest}.{dep}*{dest}.{origin}.{ret};c:TRY;e:1{stops};t:f"
-    return f"{base}#{hash_part}"
 
 def should_alarm(price, target, has_stopover):
     if has_stopover:
@@ -111,31 +118,26 @@ def is_fresh(scraped_at):
 # FİYAT PARSE
 # ============================================================
 def extract_prices_from_html(html, route):
-    """HTML string'inden TL fiyatlarını çıkarır."""
     mn, mx = BOUNDS.get(route, (100, 200000))
     found = set()
 
-    # Yöntem 1: ₺ sembolü yanındaki sayılar
+    # Yöntem 1: ₺ sembolü
     for m in re.finditer(r'₺\s*([\d]{1,3}(?:[.,][\d]{3})*|[\d]{3,6})', html):
         raw = m.group(1).replace(".", "").replace(",", "")
         try:
-            price = float(raw)
-            if mn <= price <= mx:
-                found.add(price)
-        except ValueError:
-            pass
+            p = float(raw)
+            if mn <= p <= mx: found.add(p)
+        except: pass
 
-    # Yöntem 2: "TL" kelimesinin önündeki sayılar
+    # Yöntem 2: "X TL" formatı
     for m in re.finditer(r'([\d]{1,3}(?:[.,][\d]{3})+)\s*TL', html):
         raw = m.group(1).replace(".", "").replace(",", "")
         try:
-            price = float(raw)
-            if mn <= price <= mx:
-                found.add(price)
-        except ValueError:
-            pass
+            p = float(raw)
+            if mn <= p <= mx: found.add(p)
+        except: pass
 
-    # Yöntem 3: JSON TRY fiyatları
+    # Yöntem 3: JSON TRY
     for m in re.finditer(r'"(\d{4,6})"\s*,\s*"TRY"', html):
         try:
             p = float(m.group(1))
@@ -153,39 +155,62 @@ def extract_prices_from_html(html, route):
         print(f"    [PARSE] {len(result)} fiyat: {result[:5]}")
         return result[:5]
 
-    print(f"    [PARSE] Fiyat bulunamadı ({mn:,}–{mx:,} TL)")
-    tl_idx = html.find("₺")
-    if tl_idx >= 0:
-        print(f"    [DEBUG] ₺ bağlamı: {repr(html[max(0,tl_idx-10):tl_idx+30])}")
+    print(f"    [PARSE] Fiyat yok ({mn:,}–{mx:,} TL aralığı)")
+    idx = html.find("₺")
+    if idx >= 0:
+        print(f"    [DEBUG] ₺ bağlamı: {repr(html[max(0,idx-10):idx+30])}")
     else:
-        print(f"    [DEBUG] HTML'de ₺ yok. Uzunluk: {len(html):,} byte")
+        print(f"    [DEBUG] HTML'de ₺ yok. Uzunluk: {len(html):,}")
     return []
 
+def is_real_captcha(html, url):
+    """
+    Gerçek CAPTCHA'yı masumca geçen 'robot' kelimesinden ayırt eder.
+    Google Flights HTML'inde 'robot' kelimesi meşru içerikte de geçer.
+    """
+    # Gerçek CAPTCHA sinyalleri
+    real_signals = [
+        "unusual traffic",
+        "/sorry/index",
+        "recaptcha/api.js",
+        "g-recaptcha",
+        "I'm not a robot",
+        "Are you a robot",
+        "confirm you're not a robot",
+    ]
+    html_lower = html.lower()
+    for sig in real_signals:
+        if sig.lower() in html_lower:
+            return True, sig
+    if "/sorry/" in url:
+        return True, "URL /sorry/"
+    return False, None
+
 def detect_stopover(html):
-    """Sayfada aktarma ifadesi var mı?"""
     if "nonstop" in html.lower(): return False
     kws = ["aktarma", "aktarmalı", "1 stop", "2 stop", "layover", "connecting"]
     return any(kw in html.lower() for kw in kws)
 
 # ============================================================
-# PLAYWRIGHT SCRAPER
+# PLAYWRIGHT — FORM DOLDURMA YÖNTEMİ
 # ============================================================
 def scrape_with_playwright(origin, dest, dep_date, ret_date):
     """
-    Playwright Chromium ile Google Flights açar, JS render bekler, fiyat çeker.
+    Google Flights ana sayfasını açar, arama formunu doldurur,
+    gidiş-dönüş tarihlerini seçer, arama yapar ve sonuçları çeker.
+    
+    Hash URL (#flt=...) headless tarayıcıda çalışmıyor çünkü
+    hash kısmı server'a gönderilmiyor — sadece JS tarafından işleniyor.
+    Bu yöntem gerçek kullanıcı davranışı simüle eder.
     """
     try:
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
-        print("  [HATA] Playwright kurulu değil!")
-        print("  Çözüm: pip install playwright && playwright install chromium")
+        print("  [HATA] playwright kurulu değil: pip install playwright && playwright install chromium")
         return []
 
     route = f"{origin}-{dest}"
-    url   = build_flights_url(origin, dest, dep_date, ret_date, nonstop=True)
-
-    print(f"    [PW] {route} {dep_date}→{ret_date}")
-    print(f"    [PW] {url[:100]}")
+    print(f"    [PW] {route} {dep_date}→{ret_date} — form doldurma başlıyor")
 
     results = []
 
@@ -201,6 +226,7 @@ def scrape_with_playwright(origin, dest, dep_date, ret_date):
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-extensions",
+                "--window-size=1366,768",
             ]
         )
 
@@ -215,170 +241,448 @@ def scrape_with_playwright(origin, dest, dep_date, ret_date):
             ),
             extra_http_headers={
                 "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
             }
         )
 
-        # Otomasyon tespitini engelle
+        # Otomasyon sinyallerini gizle
         context.add_init_script("""
+            // webdriver bayrağını gizle
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['tr-TR', 'tr', 'en-US']});
-            window.chrome = {runtime: {}};
+            // Chrome nesnesi
+            window.chrome = {runtime: {}, loadTimes: () => {}, csi: () => {}, app: {}};
+            // Plugin listesi doldur
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => {
+                    const arr = [
+                        {name:'Chrome PDF Plugin', filename:'internal-pdf-viewer'},
+                        {name:'Chrome PDF Viewer', filename:'mhjfbmdgcfjbbpaeojofohoefgiehjai'},
+                        {name:'Native Client', filename:'internal-nacl-plugin'},
+                    ];
+                    arr.__proto__ = PluginArray.prototype;
+                    return arr;
+                }
+            });
+            // Dil ayarı
+            Object.defineProperty(navigator, 'languages', {get: () => ['tr-TR', 'tr', 'en-US', 'en']});
+            // Permissions API
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (params) => (
+                params.name === 'notifications' ? 
+                Promise.resolve({state: Notification.permission}) : 
+                originalQuery(params)
+            );
         """)
 
         page = context.new_page()
 
         try:
-            page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded")
+            # ── Adım 1: Ana sayfayı aç ────────────────────────────────
+            print(f"    [PW] Ana sayfa açılıyor...")
+            page.goto(
+                "https://www.google.com/travel/flights?hl=tr&curr=TRY&gl=TR",
+                timeout=PAGE_TIMEOUT_MS,
+                wait_until="domcontentloaded"
+            )
 
-            # CAPTCHA / blok kontrolü
-            cur_url = page.url
-            if "/sorry/" in cur_url or "unusual traffic" in cur_url:
-                print(f"    [PW] CAPTCHA — atlanıyor")
+            # CAPTCHA kontrolü
+            captcha, signal = is_real_captcha(page.content(), page.url)
+            if captcha:
+                print(f"    [PW] Gerçek CAPTCHA: {signal}")
                 browser.close()
                 return []
 
-            # Cookie popup'ı kapat
-            for btn_text in ["Tümünü reddet", "Reject all", "Accept all", "Tümünü kabul et"]:
-                try:
-                    btn = page.get_by_role("button", name=btn_text)
-                    if btn.count() > 0:
-                        btn.first.click(timeout=3000)
-                        print(f"    [PW] '{btn_text}' tıklandı")
-                        break
-                except: pass
+            # İnsan gibi kısa bekleme
+            page.wait_for_timeout(random.randint(1500, 3000))
 
-            # Network isteklerinin bitmesini bekle
+            # Cookie popup'ı kapat (varsa)
+            _close_cookie_popup(page)
+
+            # ── Adım 2: Round-trip (gidiş-dönüş) modunu doğrula ──────
+            # Varsayılan round-trip — değilse seç
+            _ensure_roundtrip(page)
+
+            # ── Adım 3: Nereden alanını doldur ───────────────────────
+            origin_name = AIRPORT_NAMES.get(origin, origin)
+            dest_name   = AIRPORT_NAMES.get(dest, dest)
+            print(f"    [PW] Nereden: {origin} ({origin_name})")
+
+            if not _fill_airport_field(page, "origin", origin, origin_name):
+                print(f"    [PW] Origin doldurulamadı, HTML parse'a geçiliyor")
+                results = _fallback_url_scrape(page, origin, dest, dep_date, ret_date, route)
+                browser.close()
+                return results
+
+            page.wait_for_timeout(random.randint(800, 1500))
+
+            # ── Adım 4: Nereye alanını doldur ────────────────────────
+            print(f"    [PW] Nereye: {dest} ({dest_name})")
+            if not _fill_airport_field(page, "dest", dest, dest_name):
+                print(f"    [PW] Dest doldurulamadı")
+                results = _fallback_url_scrape(page, origin, dest, dep_date, ret_date, route)
+                browser.close()
+                return results
+
+            page.wait_for_timeout(random.randint(800, 1500))
+
+            # ── Adım 5: Tarihleri seç ─────────────────────────────────
+            print(f"    [PW] Tarih: {dep_date} → {ret_date}")
+            _select_dates(page, dep_date, ret_date)
+
+            page.wait_for_timeout(random.randint(1000, 2000))
+
+            # ── Adım 6: Ara ───────────────────────────────────────────
+            print(f"    [PW] Arama yapılıyor...")
+            _click_search(page)
+
+            # Sonuçları bekle
+            print(f"    [PW] Sonuçlar bekleniyor ({RENDER_WAIT_MS}ms)...")
+            page.wait_for_timeout(RENDER_WAIT_MS)
+
             try:
-                page.wait_for_load_state("networkidle", timeout=20000)
-            except:
-                pass
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except: pass
 
-            # JS render için ekstra bekleme
-            print(f"    [PW] Render bekleniyor ({WAIT_AFTER_LOAD_MS}ms)...")
-            page.wait_for_timeout(WAIT_AFTER_LOAD_MS)
-
-            # Fiyat elementlerini bekle — birden fazla selector dene
-            fiyat_yüklendi = False
-            for sel in [
-                '[data-gs]',
-                '.YMlIz',
-                '.FpEdX',
-                'div[aria-label*="TL"]',
-                'span[aria-label*="TL"]',
-                '[class*="price"]',
-            ]:
-                try:
-                    page.wait_for_selector(sel, timeout=8000)
-                    print(f"    [PW] Selector bulundu: {sel}")
-                    fiyat_yüklendi = True
-                    break
-                except: pass
-
-            if not fiyat_yüklendi:
-                print(f"    [PW] Fiyat selector'ı bulunamadı — devam ediliyor")
-
-            # Biraz daha bekle
             page.wait_for_timeout(3000)
 
+            # ── Adım 7: Fiyatları çek ─────────────────────────────────
             scraped_at = datetime.now()
             title      = page.title()
-            print(f"    [PW] Sayfa: '{title[:60]}'")
-
-            # HTML al
-            html = page.content()
+            cur_url    = page.url
+            html       = page.content()
+            print(f"    [PW] Sayfa: '{title[:70]}'")
             print(f"    [PW] HTML: {len(html):,} byte")
 
-            # CAPTCHA HTML kontrolü
-            if "captcha" in html.lower() or "i'm not a robot" in html.lower():
-                print(f"    [PW] CAPTCHA HTML'de tespit edildi")
+            # Gerçek CAPTCHA kontrolü
+            captcha, signal = is_real_captcha(html, cur_url)
+            if captcha:
+                print(f"    [PW] CAPTCHA sonuç sayfasında: {signal}")
                 browser.close()
                 return []
 
-            # 1. Önce DOM'dan direkt çek (daha doğru)
+            # DOM'dan fiyat çek
             dom_results = _dom_extract(page, route, scraped_at)
-
             if dom_results:
                 results = dom_results
-                print(f"    [PW] DOM: {len(results)} sonuç")
+                print(f"    [PW] DOM: {len(results)} fiyat")
             else:
-                # 2. HTML parse'a düş
-                print(f"    [PW] DOM boş, HTML parse deneniyor...")
+                # HTML parse'a düş
                 prices = extract_prices_from_html(html, route)
                 stop   = detect_stopover(html)
-                for pr in prices:
-                    results.append({
-                        "price": pr,
-                        "airline": "Çeşitli",
-                        "has_stopover": stop,
-                        "scraped_at": scraped_at,
-                        "source": "playwright_html",
-                    })
+                results = [{
+                    "price": pr,
+                    "airline": "Çeşitli",
+                    "has_stopover": stop,
+                    "scraped_at": scraped_at,
+                    "source": "playwright_html",
+                } for pr in prices]
 
-            # Sonuç yoksa screenshot al (debug)
             if not results:
-                try:
-                    ss = f"/tmp/debug_{origin}{dest}_{dep_date}.png"
-                    page.screenshot(path=ss)
-                    print(f"    [PW] Screenshot: {ss}")
-                except: pass
+                _save_debug_screenshot(page, origin, dest, dep_date)
 
         except Exception as e:
             print(f"    [PW HATA] {type(e).__name__}: {e}")
+            try: _save_debug_screenshot(page, origin, dest, dep_date)
+            except: pass
         finally:
             browser.close()
 
     return results
 
 
-def _dom_extract(page, route, scraped_at):
-    """Playwright page üzerinden DOM sorgulama."""
-    mn, mx = BOUNDS.get(route, (100, 200000))
-    results = []
+def _close_cookie_popup(page):
+    """Cookie / consent popup'ını kapat."""
+    for text in ["Tümünü reddet", "Reject all", "Kabul et", "Accept all", "Agree"]:
+        try:
+            btn = page.get_by_role("button", name=re.compile(text, re.IGNORECASE))
+            if btn.count() > 0:
+                btn.first.click(timeout=3000)
+                print(f"    [PW] Popup kapatıldı: '{text}'")
+                page.wait_for_timeout(500)
+                return
+        except: pass
 
-    # Google Flights DOM selector'ları (öncelik sırasıyla)
-    selectors = [
-        # 2024+ Google Flights fiyat container
-        '[data-gs]',
-        # Fiyat span'ları
-        '.YMlIz',
-        '.FpEdX',
-        '.gDs2Hf',
-        # Genel
-        '[aria-label*="Türk lirası"]',
-        '[aria-label*="TL"]',
-        'div[role="listitem"]',
-    ]
+
+def _ensure_roundtrip(page):
+    """Gidiş-dönüş modunda olduğundan emin ol."""
+    try:
+        # Uçuş tipi dropdown
+        trip_btn = page.locator('[data-value="1"], [aria-label*="Round trip"], [aria-label*="Gidiş-dönüş"]')
+        if trip_btn.count() > 0:
+            print(f"    [PW] Round-trip modu zaten seçili")
+            return
+        # Değilse dropdown'u aç ve round-trip seç
+        mode_select = page.locator('div[data-gs]:first-child, .VfPpkd-TkwUic').first
+        mode_select.click(timeout=3000)
+        page.wait_for_timeout(500)
+        roundtrip = page.get_by_text("Gidiş-dönüş", exact=False)
+        if roundtrip.count() > 0:
+            roundtrip.first.click(timeout=2000)
+    except: pass
+
+
+def _fill_airport_field(page, field_type, code, name):
+    """
+    Havalimanı alanını doldur.
+    field_type: "origin" veya "dest"
+    """
+    # Google Flights form alanı selector'ları
+    if field_type == "origin":
+        selectors = [
+            '[placeholder*="Nereden"], [placeholder*="From"], [placeholder*="Origin"]',
+            '[aria-label*="Nereden"], [aria-label*="Where from"], [aria-label*="From"]',
+            'input[aria-label*="Kalkış"]',
+            '.e5F5td input',   # Google Flights 2024 class
+            'input[role="combobox"]:first-of-type',
+        ]
+    else:
+        selectors = [
+            '[placeholder*="Nereye"], [placeholder*="To"], [placeholder*="Destination"]',
+            '[aria-label*="Nereye"], [aria-label*="Where to"], [aria-label*="To"]',
+            'input[aria-label*="Varış"]',
+            '.e5F5td input:nth-of-type(2)',
+            'input[role="combobox"]:nth-of-type(2)',
+        ]
 
     for sel in selectors:
         try:
-            elems = page.locator(sel).all()
-            if not elems:
+            field = page.locator(sel).first
+            if field.count() == 0:
                 continue
+
+            # Mevcut değeri temizle
+            field.click(timeout=3000)
+            page.wait_for_timeout(300)
+            field.select_all()
+            field.press("Backspace")
+            page.wait_for_timeout(200)
+
+            # Havalimanı kodunu yaz (insan hızında)
+            field.type(code, delay=random.randint(80, 150))
+            page.wait_for_timeout(random.randint(1000, 1800))
+
+            # Autocomplete dropdown'dan seç
+            dropdown_items = page.locator(
+                'li[role="option"], [data-value], .pFWOv, .n3jYMd li'
+            )
+            if dropdown_items.count() > 0:
+                # İlk eşleşen seçeneği bul
+                for i in range(min(5, dropdown_items.count())):
+                    item_text = dropdown_items.nth(i).inner_text()
+                    if code in item_text.upper() or name.split()[0].lower() in item_text.lower():
+                        dropdown_items.nth(i).click(timeout=2000)
+                        print(f"    [PW] '{code}' seçildi: {item_text[:50]}")
+                        page.wait_for_timeout(400)
+                        return True
+                # İlk seçeneği al
+                dropdown_items.first.click(timeout=2000)
+                print(f"    [PW] '{code}' ilk seçenek seçildi")
+                page.wait_for_timeout(400)
+                return True
+            else:
+                # Dropdown yoksa Enter dene
+                field.press("Enter")
+                page.wait_for_timeout(500)
+                return True
+
+        except Exception as e:
+            print(f"    [PW] Field '{sel}' hata: {e}")
+            continue
+
+    return False
+
+
+def _select_dates(page, dep_date, ret_date):
+    """
+    Tarih alanlarını doldur.
+    Önce text input deneyi, yoksa takvim UI.
+    """
+    # Gidiş tarihi input'u bul
+    dep_selectors = [
+        '[placeholder*="Gidiş"], [aria-label*="Gidiş tarihi"], [aria-label*="Departure"]',
+        'input[aria-label*="departure"], input[aria-label*="Gidiş"]',
+        '.TP4Lpb input:first-of-type',
+    ]
+    ret_selectors = [
+        '[placeholder*="Dönüş"], [aria-label*="Dönüş tarihi"], [aria-label*="Return"]',
+        'input[aria-label*="return"], input[aria-label*="Dönüş"]',
+        '.TP4Lpb input:last-of-type',
+    ]
+
+    def fill_date_field(selectors, date_str):
+        # Türkçe tarih formatı: GG Ay YYYY (örn: 10 Nis 2026)
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        tr_months = {1:"Oca",2:"Şub",3:"Mar",4:"Nis",5:"May",6:"Haz",
+                     7:"Tem",8:"Ağu",9:"Eyl",10:"Eki",11:"Kas",12:"Ara"}
+        tr_date = f"{dt.day} {tr_months[dt.month]} {dt.year}"
+
+        for sel in selectors:
+            try:
+                field = page.locator(sel).first
+                if field.count() == 0: continue
+                field.click(timeout=3000)
+                page.wait_for_timeout(500)
+                field.fill("")
+                field.type(date_str, delay=80)  # YYYY-MM-DD dene
+                page.wait_for_timeout(800)
+                # Autocomplete'den seç veya Enter
+                opts = page.locator('li[role="option"]')
+                if opts.count() > 0:
+                    opts.first.click(timeout=2000)
+                else:
+                    field.press("Enter")
+                    page.wait_for_timeout(500)
+                return True
+            except: continue
+        return False
+
+    dep_ok = fill_date_field(dep_selectors, dep_date)
+    page.wait_for_timeout(random.randint(500, 1000))
+    ret_ok = fill_date_field(ret_selectors, ret_date)
+
+    if not dep_ok or not ret_ok:
+        # Takvim UI dene
+        _select_dates_calendar(page, dep_date, ret_date)
+
+
+def _select_dates_calendar(page, dep_date, ret_date):
+    """Takvim arayüzü ile tarih seç."""
+    try:
+        # Herhangi bir tarih alanına tıkla
+        date_field = page.locator('[aria-label*="tarih"], [aria-label*="date"]').first
+        date_field.click(timeout=5000)
+        page.wait_for_timeout(1000)
+
+        # Takvimde tarihleri bul ve tıkla
+        dep_dt = datetime.strptime(dep_date, "%Y-%m-%d")
+        ret_dt = datetime.strptime(ret_date, "%Y-%m-%d")
+
+        for dt, label in [(dep_dt, "gidiş"), (ret_dt, "dönüş")]:
+            # data-iso veya aria-label ile gün bul
+            day_sel = page.locator(
+                f'[data-iso="{dt.strftime("%Y-%m-%d")}"], '
+                f'[aria-label*="{dt.day}"]'
+            )
+            if day_sel.count() > 0:
+                day_sel.first.click(timeout=3000)
+                print(f"    [PW] {label} takvimde seçildi: {dt.date()}")
+                page.wait_for_timeout(500)
+
+        # "Bitti" / "Done" butonuna tıkla
+        for done_text in ["Bitti", "Done", "Tamam", "OK"]:
+            try:
+                btn = page.get_by_role("button", name=done_text)
+                if btn.count() > 0:
+                    btn.first.click(timeout=2000)
+                    break
+            except: pass
+    except Exception as e:
+        print(f"    [PW] Takvim seçimi hata: {e}")
+
+
+def _click_search(page):
+    """Arama butonuna tıkla."""
+    search_selectors = [
+        'button[aria-label*="Ara"], button[aria-label*="Search"]',
+        'button:has-text("Ara"), button:has-text("Search")',
+        '.MXvFbd',   # Google Flights arama butonu class (2024)
+        'button[type="submit"]',
+        '[role="button"]:has-text("Ara")',
+    ]
+    for sel in search_selectors:
+        try:
+            btn = page.locator(sel).first
+            if btn.count() > 0:
+                btn.click(timeout=5000)
+                print(f"    [PW] Arama butonuna tıklandı: {sel}")
+                return True
+        except: continue
+
+    # Son çare: Enter tuşu
+    page.keyboard.press("Enter")
+    print(f"    [PW] Enter ile arama tetiklendi")
+    return True
+
+
+def _fallback_url_scrape(page, origin, dest, dep_date, ret_date, route):
+    """
+    Form doldurulamadığında URL parametreli yaklaşım dene.
+    q= parametresi hash'ten farklı olarak bazı durumlarda çalışır.
+    """
+    import urllib.parse
+    print(f"    [PW] Fallback: URL ile arama deneniyor...")
+    url = (f"https://www.google.com/travel/flights"
+           f"?hl=tr&curr=TRY&gl=TR"
+           f"&q={urllib.parse.quote(AIRPORT_NAMES.get(origin, origin))}"
+           f"+to+{urllib.parse.quote(AIRPORT_NAMES.get(dest, dest))}"
+           f"+{dep_date}+{ret_date}")
+    try:
+        page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded")
+        page.wait_for_timeout(RENDER_WAIT_MS)
+        html = page.content()
+        captcha, sig = is_real_captcha(html, page.url)
+        if captcha:
+            print(f"    [PW] Fallback CAPTCHA: {sig}")
+            return []
+        prices = extract_prices_from_html(html, route)
+        stop   = detect_stopover(html)
+        scraped_at = datetime.now()
+        return [{"price": p, "airline": "Çeşitli", "has_stopover": stop,
+                 "scraped_at": scraped_at, "source": "playwright_url"} for p in prices]
+    except Exception as e:
+        print(f"    [PW] Fallback hata: {e}")
+        return []
+
+
+def _dom_extract(page, route, scraped_at):
+    """DOM'dan fiyatları çek."""
+    mn, mx = BOUNDS.get(route, (100, 200000))
+    results = []
+
+    price_selectors = [
+        # Google Flights 2024+ fiyat container'ları
+        '[data-gs] .YMlIz',
+        '[data-gs] .FpEdX',
+        '[data-gs]',
+        # Aria label bazlı
+        '[aria-label*="TL"]',
+        '[aria-label*="Türk lirası"]',
+        # Genel
+        'div.YMlIz',
+        'span.YMlIz',
+        'div.FpEdX',
+    ]
+
+    price_regex = [
+        r'₺\s*([\d]{1,3}(?:[.,][\d]{3})+)',
+        r'₺\s*(\d{4,6})',
+        r'([\d]{1,3}(?:[.,][\d]{3})+)\s*TL',
+    ]
+
+    for sel in price_selectors:
+        try:
+            elems = page.locator(sel).all()
+            if not elems: continue
             print(f"    [DOM] '{sel}' → {len(elems)} element")
 
-            for elem in elems[:30]:
+            for elem in elems[:40]:
                 try:
-                    text = elem.inner_text().strip()
+                    text = (elem.inner_text() or "").strip()
                     if not text:
                         text = elem.get_attribute("aria-label") or ""
-                    if not text:
-                        continue
+                    if not text: continue
 
-                    # Türkçe TL formatı: ₺1.450 veya 1.450 TL veya 1450
-                    for pat in [
-                        r'₺\s*([\d]{1,3}(?:[.,][\d]{3})+)',
-                        r'₺\s*(\d{4,6})',
-                        r'([\d]{1,3}(?:[.,][\d]{3})+)\s*TL',
-                        r'([\d]{1,3}(?:[.,][\d]{3})+)\s*₺',
-                    ]:
-                        m = re.search(pat, text)
+                    for pat in price_regex:
+                        m = re.search(pat, text.replace("\xa0", "").replace("\u200b", ""))
                         if m:
                             raw   = m.group(1).replace(".", "").replace(",", "")
                             price = float(raw)
                             if mn <= price <= mx:
                                 stop = any(kw in text.lower()
-                                          for kw in ["aktarma", "1 stop", "2 stop", "layover"])
+                                           for kw in ["aktarma", "1 stop", "2 stop", "layover"])
                                 results.append({
                                     "price": price,
                                     "airline": "Çeşitli",
@@ -387,24 +691,31 @@ def _dom_extract(page, route, scraped_at):
                                     "source": "playwright_dom",
                                 })
                                 print(f"    [DOM] ✓ {price:,.0f} TL")
-                                break
+                            break
                 except: pass
 
-            if results:
-                # Duplicate temizle
-                seen = set()
-                unique = []
-                for r in results:
-                    if r["price"] not in seen:
-                        seen.add(r["price"])
-                        unique.append(r)
-                return sorted(unique, key=lambda x: x["price"])
+            if results: break
 
         except Exception as e:
-            print(f"    [DOM] '{sel}' hata: {e}")
-            continue
+            print(f"    [DOM] Hata: {e}")
 
-    return []
+    # Deduplicate
+    seen = set()
+    unique = []
+    for r in results:
+        if r["price"] not in seen:
+            seen.add(r["price"])
+            unique.append(r)
+    return sorted(unique, key=lambda x: x["price"])
+
+
+def _save_debug_screenshot(page, origin, dest, dep_date):
+    """Hata durumunda screenshot kaydet."""
+    try:
+        path = f"/tmp/titan_debug_{origin}{dest}_{dep_date}.png"
+        page.screenshot(path=path, full_page=False)
+        print(f"    [PW] Screenshot: {path}")
+    except: pass
 
 # ============================================================
 # HISTORY
@@ -497,9 +808,9 @@ def format_message(origin, dest, dep, ret, price, airline, target, has_stop):
 # ============================================================
 def run_scraper():
     print(f"\n{'='*60}")
-    print(f"PROJECT TITAN v6.0 (Playwright) — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"PROJECT TITAN v6.1 (Playwright Form) — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Direkt eşik   : hedefin %{round(DIRECT_THRESHOLD*100)}'i altı")
-    print(f"Aktarmalı eşik: hedefin %{round(STOPOVER_THRESHOLD*100)}'i altı (%90 indirim)")
+    print(f"Aktarmalı eşik: hedefin %{round(STOPOVER_THRESHOLD*100)}'i altı")
     print(f"{'='*60}\n")
 
     all_flights  = []
@@ -567,7 +878,7 @@ def run_scraper():
 
                 if alarm_ok:
                     if not is_fresh(scraped_at):
-                        print(f"  [⏸] Veri eski, alarm yok")
+                        print(f"  [⏸] Veri eski")
                         continue
                     ok, reason = can_send_alarm(route, price, target)
                     if ok:
@@ -578,8 +889,8 @@ def run_scraper():
                     else:
                         print(f"  [⏸] {reason}")
 
-            sleep_s = random.uniform(8, 15)
-            print(f"  [⏳] {sleep_s:.1f}s bekleniyor (rate limit)...")
+            sleep_s = random.uniform(10, 18)
+            print(f"  [⏳] {sleep_s:.1f}s bekleniyor...")
             time.sleep(sleep_s)
 
     # flights.json yaz
