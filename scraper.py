@@ -121,7 +121,7 @@ def extract_prices_from_html(html, route):
     mn, mx = BOUNDS.get(route, (100, 200000))
     found = set()
 
-    # Yöntem 1: ₺ sembolü
+    # Yöntem 1: ₺ sembolü (rendered HTML)
     for m in re.finditer(r'₺\s*([\d]{1,3}(?:[.,][\d]{3})*|[\d]{3,6})', html):
         raw = m.group(1).replace(".", "").replace(",", "")
         try:
@@ -137,16 +137,32 @@ def extract_prices_from_html(html, route):
             if mn <= p <= mx: found.add(p)
         except: pass
 
-    # Yöntem 3: JSON TRY
-    for m in re.finditer(r'"(\d{4,6})"\s*,\s*"TRY"', html):
+    # Yöntem 3: JSON "fiyat","TRY" pattern
+    for m in re.finditer(r'"(\d{3,6})"\s*,\s*"TRY"', html):
         try:
             p = float(m.group(1))
             if mn <= p <= mx: found.add(p)
         except: pass
 
-    for m in re.finditer(r'\[null,null,(\d{4,6})[,\]]', html):
+    # Yöntem 4: [null,null,FIYAT] JSON array (Google Flights iç veri)
+    for m in re.finditer(r'\[null,null,(\d{3,6})[,\]]', html):
         try:
             p = float(m.group(1))
+            if mn <= p <= mx: found.add(p)
+        except: pass
+
+    # Yöntem 5: Google Flights proto data — [["IST","CDG",...],FIYAT,
+    for m in re.finditer(r',(\d{4,6}),(?:null|\d)', html):
+        try:
+            p = float(m.group(1))
+            if mn <= p <= mx: found.add(p)
+        except: pass
+
+    # Yöntem 6: aria-label içinde fiyat (DOM render sonrası)
+    for m in re.finditer(r'aria-label="[^"]*?(\d{1,3}(?:[.,]\d{3})+)\s*(?:TL|₺|Türk lirası)', html):
+        raw = m.group(1).replace(".", "").replace(",", "")
+        try:
+            p = float(raw)
             if mn <= p <= mx: found.add(p)
         except: pass
 
@@ -159,6 +175,10 @@ def extract_prices_from_html(html, route):
     idx = html.find("₺")
     if idx >= 0:
         print(f"    [DEBUG] ₺ bağlamı: {repr(html[max(0,idx-10):idx+30])}")
+        # TRY ile ilgili daha geniş bağlam göster
+        try_idx = html.find('"TRY"')
+        if try_idx >= 0:
+            print(f"    [DEBUG] TRY bağlamı: {repr(html[max(0,try_idx-50):try_idx+30])}")
     else:
         print(f"    [DEBUG] HTML'de ₺ yok. Uzunluk: {len(html):,}")
     return []
@@ -407,21 +427,30 @@ def _close_cookie_popup(page):
 
 
 def _ensure_roundtrip(page):
-    """Gidiş-dönüş modunda olduğundan emin ol."""
+    """
+    Gidiş-dönüş modunda olduğundan emin ol.
+    KRİTİK: Uçuş tipi dropdown'u açık kalırsa havalimanı alanına
+    tıklama engellendiği için mutlaka Escape ile kapat.
+    """
     try:
-        # Uçuş tipi dropdown
-        trip_btn = page.locator('[data-value="1"], [aria-label*="Round trip"], [aria-label*="Gidiş-dönüş"]')
+        # Mevcut mod metnini oku
+        trip_btn = page.locator('.VfPpkd-TkwUic, [jsname="K4r5Ff"]').first
         if trip_btn.count() > 0:
-            print(f"    [PW] Round-trip modu zaten seçili")
-            return
-        # Değilse dropdown'u aç ve round-trip seç
-        mode_select = page.locator('div[data-gs]:first-child, .VfPpkd-TkwUic').first
-        mode_select.click(timeout=3000)
-        page.wait_for_timeout(500)
-        roundtrip = page.get_by_text("Gidiş-dönüş", exact=False)
-        if roundtrip.count() > 0:
-            roundtrip.first.click(timeout=2000)
-    except: pass
+            try:
+                text = trip_btn.inner_text(timeout=1500)
+                print(f"    [PW] Uçuş tipi: '{text.strip()}'")
+            except:
+                pass
+        print(f"    [PW] Round-trip modu kontrol edildi")
+    except:
+        pass
+    finally:
+        # Açık kalan HER dropdown/popup'ı kapat — bu kritik!
+        try:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(400)
+        except:
+            pass
 
 
 def _fill_airport_field(page, field_type, code, name):
@@ -460,57 +489,80 @@ def _fill_airport_field(page, field_type, code, name):
             if field.count() == 0:
                 continue
 
-            # Mevcut değeri temizle — force=True overlay engelini aşar
+            # force=True: overlay/dialog engelini aşar
             field.click(timeout=5000, force=True)
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(600)
 
-            # Tüm metni seç ve sil (select_all() Playwright'ta yok)
+            # Tüm metni seç ve sil
             field.press("Control+a")
-            page.wait_for_timeout(150)
+            page.wait_for_timeout(100)
             field.press("Backspace")
             page.wait_for_timeout(200)
 
-            # Havalimanı kodunu yaz — fill() sonra type() fallback
+            # Havalimanı kodunu yaz
             try:
                 field.fill(code)
             except:
                 field.type(code, delay=random.randint(80, 150))
-            page.wait_for_timeout(random.randint(1200, 2000))
+            page.wait_for_timeout(random.randint(1500, 2200))
 
-            # Autocomplete dropdown'dan seç
-            dropdown_items = page.locator(
-                'li[role="option"], [data-value], .pFWOv, .n3jYMd li, [jsname="wQNmvb"]'
+            # ─────────────────────────────────────────────────────
+            # KRİTİK: Havalimanı autocomplete'i bekle.
+            # [data-value] KULLANMA — uçuş tipi dropdown'undaki
+            # "Gidiş dönüş" li'sini yakalar (not visible → timeout).
+            # Sadece görünür havalimanı suggestion li'lerini hedefle.
+            # ─────────────────────────────────────────────────────
+            airport_suggestions = page.locator(
+                'ul[role="listbox"] li[role="option"]'
             )
-            if dropdown_items.count() > 0:
-                # İlk eşleşen seçeneği bul
-                for i in range(min(5, dropdown_items.count())):
-                    item_text = dropdown_items.nth(i).inner_text()
-                    if code in item_text.upper() or name.split()[0].lower() in item_text.lower():
-                        dropdown_items.nth(i).click(timeout=2000)
-                        print(f"    [PW] '{code}' seçildi: {item_text[:50]}")
-                        page.wait_for_timeout(400)
-                        return True
-                # İlk seçeneği al
-                dropdown_items.first.click(timeout=2000)
-                print(f"    [PW] '{code}' ilk seçenek seçildi")
-                page.wait_for_timeout(400)
-                return True
-            else:
-                # Dropdown yoksa Enter dene
-                field.press("Enter")
-                page.wait_for_timeout(500)
-                return True
+
+            # Görünür suggestion yoksa daha geniş selector dene
+            if airport_suggestions.count() == 0:
+                airport_suggestions = page.locator(
+                    '[jsname="c72uKd"] li, [aria-label*="Istanbul"] >> .. >> li, '
+                    '.DFGgtd li, .rA4ede li'
+                )
+
+            if airport_suggestions.count() > 0:
+                # Görünür olanları filtrele
+                clicked = False
+                for i in range(min(6, airport_suggestions.count())):
+                    try:
+                        item = airport_suggestions.nth(i)
+                        if not item.is_visible():
+                            continue
+                        item_text = item.inner_text(timeout=1000)
+                        if code.upper() in item_text.upper() or name.split()[0].lower() in item_text.lower():
+                            item.click(timeout=3000)
+                            print(f"    [PW] '{code}' seçildi: {item_text[:50]}")
+                            page.wait_for_timeout(400)
+                            clicked = True
+                            return True
+                    except:
+                        continue
+
+                if not clicked:
+                    # İlk görünür seçeneği al
+                    for i in range(min(6, airport_suggestions.count())):
+                        try:
+                            item = airport_suggestions.nth(i)
+                            if item.is_visible():
+                                item_text = item.inner_text(timeout=1000)
+                                item.click(timeout=3000)
+                                print(f"    [PW] '{code}' ilk görünür seçenek: {item_text[:50]}")
+                                page.wait_for_timeout(400)
+                                return True
+                        except:
+                            continue
+
+            # Suggestion yoksa Tab ile onayla (Google Flights Tab'a tepki verir)
+            field.press("Tab")
+            page.wait_for_timeout(600)
+            print(f"    [PW] '{code}' Tab ile girildi (suggestion yok)")
+            return True
 
         except Exception as e:
-            print(f"    [PW] Field '{sel}' hata: {e}")
-            # JS ile doğrudan click dene (overlay atlatmak için)
-            try:
-                page.evaluate(f"""
-                    const el = document.querySelector('{sel.split(",")[0].strip()}');
-                    if (el) el.click();
-                """)
-                page.wait_for_timeout(300)
-            except: pass
+            print(f"    [PW] Field '{sel}' hata: {type(e).__name__}: {str(e)[:100]}")
             continue
 
     return False
@@ -642,7 +694,13 @@ def _fallback_url_scrape(page, origin, dest, dep_date, ret_date, route):
            f"+{dep_date}+{ret_date}")
     try:
         page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded")
+        # JavaScript render için bekle
         page.wait_for_timeout(RENDER_WAIT_MS)
+        try:
+            page.wait_for_load_state("networkidle", timeout=15000)
+        except:
+            pass
+        page.wait_for_timeout(3000)
         html = page.content()
         captcha, sig = is_real_captcha(html, page.url)
         if captcha:
