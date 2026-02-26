@@ -432,14 +432,21 @@ def _fill_airport_field(page, field_type, code, name):
     # Google Flights form alanı selector'ları
     if field_type == "origin":
         selectors = [
+            'input[jsname="yrriRe"]',                  # Google Flights confirmed jsname (logda görüldü)
+            'input[role="combobox"][aria-label*="Nereden"]',
+            'input[role="combobox"][aria-label*="Where from"]',
+            'input[role="combobox"][placeholder*="Nereden"]',
             '[placeholder*="Nereden"], [placeholder*="From"], [placeholder*="Origin"]',
             '[aria-label*="Nereden"], [aria-label*="Where from"], [aria-label*="From"]',
             'input[aria-label*="Kalkış"]',
-            '.e5F5td input',   # Google Flights 2024 class
+            '.e5F5td input',
             'input[role="combobox"]:first-of-type',
         ]
     else:
         selectors = [
+            'input[role="combobox"][aria-label*="Nereye"]',
+            'input[role="combobox"][aria-label*="Where to"]',
+            'input[role="combobox"][placeholder*="Nereye"]',
             '[placeholder*="Nereye"], [placeholder*="To"], [placeholder*="Destination"]',
             '[aria-label*="Nereye"], [aria-label*="Where to"], [aria-label*="To"]',
             'input[aria-label*="Varış"]',
@@ -453,20 +460,26 @@ def _fill_airport_field(page, field_type, code, name):
             if field.count() == 0:
                 continue
 
-            # Mevcut değeri temizle
-            field.click(timeout=3000)
-            page.wait_for_timeout(300)
-            field.select_all()
+            # Mevcut değeri temizle — force=True overlay engelini aşar
+            field.click(timeout=5000, force=True)
+            page.wait_for_timeout(500)
+
+            # Tüm metni seç ve sil (select_all() Playwright'ta yok)
+            field.press("Control+a")
+            page.wait_for_timeout(150)
             field.press("Backspace")
             page.wait_for_timeout(200)
 
-            # Havalimanı kodunu yaz (insan hızında)
-            field.type(code, delay=random.randint(80, 150))
-            page.wait_for_timeout(random.randint(1000, 1800))
+            # Havalimanı kodunu yaz — fill() sonra type() fallback
+            try:
+                field.fill(code)
+            except:
+                field.type(code, delay=random.randint(80, 150))
+            page.wait_for_timeout(random.randint(1200, 2000))
 
             # Autocomplete dropdown'dan seç
             dropdown_items = page.locator(
-                'li[role="option"], [data-value], .pFWOv, .n3jYMd li'
+                'li[role="option"], [data-value], .pFWOv, .n3jYMd li, [jsname="wQNmvb"]'
             )
             if dropdown_items.count() > 0:
                 # İlk eşleşen seçeneği bul
@@ -490,6 +503,14 @@ def _fill_airport_field(page, field_type, code, name):
 
         except Exception as e:
             print(f"    [PW] Field '{sel}' hata: {e}")
+            # JS ile doğrudan click dene (overlay atlatmak için)
+            try:
+                page.evaluate(f"""
+                    const el = document.querySelector('{sel.split(",")[0].strip()}');
+                    if (el) el.click();
+                """)
+                page.wait_for_timeout(300)
+            except: pass
             continue
 
     return False
