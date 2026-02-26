@@ -697,7 +697,8 @@ def _select_dates_calendar(page, dep_date, ret_date):
             tr_months = {1:"Ocak",2:"Şubat",3:"Mart",4:"Nisan",5:"Mayıs",6:"Haziran",
                          7:"Temmuz",8:"Ağustos",9:"Eylül",10:"Ekim",11:"Kasım",12:"Aralık"}
             tr_label = f"{dt.day} {tr_months[dt.month]} {dt.year}"
-            day_aria = page.locator(f'[aria-label*="{tr_label}"], [aria-label*="{dt.strftime('%B %d, %Y')}"]')
+            en_label = dt.strftime("%B %d, %Y")
+            day_aria = page.locator(f'[aria-label*="{tr_label}"], [aria-label*="{en_label}"]')
             if day_aria.count() > 0:
                 try:
                     day_aria.first.click(timeout=3000, force=True)
