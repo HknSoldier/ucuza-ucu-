@@ -499,12 +499,13 @@ def _fill_airport_field(page, field_type, code, name):
             field.press("Backspace")
             page.wait_for_timeout(200)
 
-            # Havalimanı kodunu yaz
+            # fill() Google autocomplete'i tetiklemiyor — karakter karakter yaz
             try:
-                field.fill(code)
+                page.evaluate("el => { el.value = ''; el.dispatchEvent(new Event('input')); }", field.element_handle())
             except:
-                field.type(code, delay=random.randint(80, 150))
-            page.wait_for_timeout(random.randint(1500, 2200))
+                pass
+            field.type(code, delay=random.randint(100, 180))
+            page.wait_for_timeout(random.randint(2000, 2800))
 
             # ─────────────────────────────────────────────────────
             # KRİTİK: Havalimanı autocomplete'i bekle.
@@ -512,19 +513,11 @@ def _fill_airport_field(page, field_type, code, name):
             # "Gidiş dönüş" li'sini yakalar (not visible → timeout).
             # Sadece görünür havalimanı suggestion li'lerini hedefle.
             # ─────────────────────────────────────────────────────
-            airport_suggestions = page.locator(
-                'ul[role="listbox"] li[role="option"]'
-            )
-
-            # Görünür suggestion yoksa daha geniş selector dene
+            airport_suggestions = page.locator('ul[role="listbox"] li[role="option"]')
             if airport_suggestions.count() == 0:
-                airport_suggestions = page.locator(
-                    '[jsname="c72uKd"] li, [aria-label*="Istanbul"] >> .. >> li, '
-                    '.DFGgtd li, .rA4ede li'
-                )
+                airport_suggestions = page.locator('.DFGgtd li, .rA4ede li, [jsname="c72uKd"] li')
 
             if airport_suggestions.count() > 0:
-                # Görünür olanları filtrele
                 clicked = False
                 for i in range(min(6, airport_suggestions.count())):
                     try:
@@ -536,29 +529,35 @@ def _fill_airport_field(page, field_type, code, name):
                             item.click(timeout=3000)
                             print(f"    [PW] '{code}' seçildi: {item_text[:50]}")
                             page.wait_for_timeout(400)
-                            clicked = True
                             return True
                     except:
                         continue
 
-                if not clicked:
-                    # İlk görünür seçeneği al
-                    for i in range(min(6, airport_suggestions.count())):
-                        try:
-                            item = airport_suggestions.nth(i)
-                            if item.is_visible():
-                                item_text = item.inner_text(timeout=1000)
-                                item.click(timeout=3000)
-                                print(f"    [PW] '{code}' ilk görünür seçenek: {item_text[:50]}")
-                                page.wait_for_timeout(400)
-                                return True
-                        except:
-                            continue
+                for i in range(min(6, airport_suggestions.count())):
+                    try:
+                        item = airport_suggestions.nth(i)
+                        if item.is_visible():
+                            item_text = item.inner_text(timeout=1000)
+                            item.click(timeout=3000)
+                            print(f"    [PW] '{code}' ilk görünür seçenek: {item_text[:50]}")
+                            page.wait_for_timeout(400)
+                            return True
+                    except:
+                        continue
 
-            # Suggestion yoksa Tab ile onayla (Google Flights Tab'a tepki verir)
-            field.press("Tab")
-            page.wait_for_timeout(600)
-            print(f"    [PW] '{code}' Tab ile girildi (suggestion yok)")
+            # Son çare: Enter — ama önce seçilen değeri doğrula
+            field.press("Enter")
+            page.wait_for_timeout(800)
+            try:
+                val = field.input_value(timeout=1000)
+                if val and code.upper() not in val.upper():
+                    print(f"    [PW] '{code}' YANLIŞ SEÇIM: '{val}' — bu selector reddediliyor")
+                    field.press("Control+a")
+                    field.press("Backspace")
+                    continue
+                print(f"    [PW] '{code}' Enter ile girildi, değer='{val}'")
+            except:
+                print(f"    [PW] '{code}' Enter ile girildi (doğrulama yapılamadı)")
             return True
 
         except Exception as e:
@@ -622,38 +621,81 @@ def _select_dates(page, dep_date, ret_date):
 
 
 def _select_dates_calendar(page, dep_date, ret_date):
-    """Takvim arayüzü ile tarih seç."""
-    try:
-        # Herhangi bir tarih alanına tıkla
-        date_field = page.locator('[aria-label*="tarih"], [aria-label*="date"]').first
-        date_field.click(timeout=5000)
-        page.wait_for_timeout(1000)
+    """
+    Takvim arayüzü ile tarih seç.
+    Google Flights'ta tarih alanları çoğunlukla takvim popup'ı açar.
+    """
+    dep_dt = datetime.strptime(dep_date, "%Y-%m-%d")
+    ret_dt = datetime.strptime(ret_date, "%Y-%m-%d")
 
-        # Takvimde tarihleri bul ve tıkla
-        dep_dt = datetime.strptime(dep_date, "%Y-%m-%d")
-        ret_dt = datetime.strptime(ret_date, "%Y-%m-%d")
+    # Tarih alanı selector'ları — birini bulmaya çalış
+    date_triggers = [
+        f'[aria-label*="{dep_dt.strftime("%d %B")}"], [aria-label*="Gidiş tarihi"]',
+        '[data-iso], [placeholder*="Gidiş"], input[aria-label*="departure"]',
+        '.eoY5cb, .k4HMSd',  # Google Flights 2024/2025 tarih container'ları
+    ]
+    opened = False
+    for sel in date_triggers:
+        try:
+            el = page.locator(sel).first
+            if el.count() > 0 and el.is_visible():
+                el.click(timeout=3000, force=True)
+                page.wait_for_timeout(1000)
+                opened = True
+                print(f"    [PW] Takvim açıldı: {sel[:50]}")
+                break
+        except:
+            continue
 
-        for dt, label in [(dep_dt, "gidiş"), (ret_dt, "dönüş")]:
-            # data-iso veya aria-label ile gün bul
-            day_sel = page.locator(
-                f'[data-iso="{dt.strftime("%Y-%m-%d")}"], '
-                f'[aria-label*="{dt.day}"]'
-            )
-            if day_sel.count() > 0:
-                day_sel.first.click(timeout=3000)
-                print(f"    [PW] {label} takvimde seçildi: {dt.date()}")
-                page.wait_for_timeout(500)
+    if not opened:
+        print(f"    [PW] Takvim açılamadı, tarihler girilemeyebilir")
+        return
 
-        # "Bitti" / "Done" butonuna tıkla
-        for done_text in ["Bitti", "Done", "Tamam", "OK"]:
+    # Her iki tarih için — önce gidiş, sonra dönüş
+    for dt, label in [(dep_dt, "gidiş"), (ret_dt, "dönüş")]:
+        iso = dt.strftime("%Y-%m-%d")
+        clicked = False
+
+        # Yöntem 1: data-iso attribute
+        day_iso = page.locator(f'[data-iso="{iso}"]')
+        if day_iso.count() > 0:
             try:
-                btn = page.get_by_role("button", name=done_text)
-                if btn.count() > 0:
-                    btn.first.click(timeout=2000)
-                    break
-            except: pass
-    except Exception as e:
-        print(f"    [PW] Takvim seçimi hata: {e}")
+                day_iso.first.click(timeout=3000, force=True)
+                print(f"    [PW] {label} seçildi (data-iso): {iso}")
+                page.wait_for_timeout(500)
+                clicked = True
+            except:
+                pass
+
+        # Yöntem 2: aria-label ile tam tarih
+        if not clicked:
+            tr_months = {1:"Ocak",2:"Şubat",3:"Mart",4:"Nisan",5:"Mayıs",6:"Haziran",
+                         7:"Temmuz",8:"Ağustos",9:"Eylül",10:"Ekim",11:"Kasım",12:"Aralık"}
+            tr_label = f"{dt.day} {tr_months[dt.month]} {dt.year}"
+            day_aria = page.locator(f'[aria-label*="{tr_label}"], [aria-label*="{dt.strftime('%B %d, %Y')}"]')
+            if day_aria.count() > 0:
+                try:
+                    day_aria.first.click(timeout=3000, force=True)
+                    print(f"    [PW] {label} seçildi (aria): {tr_label}")
+                    page.wait_for_timeout(500)
+                    clicked = True
+                except:
+                    pass
+
+        if not clicked:
+            print(f"    [PW] {label} takvimde bulunamadı: {iso}")
+
+    # "Bitti" / "Done" butonuna tıkla
+    for done_text in ["Bitti", "Done", "Tamam", "OK", "Ara"]:
+        try:
+            btn = page.get_by_role("button", name=re.compile(done_text, re.IGNORECASE))
+            if btn.count() > 0 and btn.first.is_visible():
+                btn.first.click(timeout=2000)
+                print(f"    [PW] Takvim kapatıldı: {done_text}")
+                page.wait_for_timeout(500)
+                break
+        except:
+            pass
 
 
 def _click_search(page):
